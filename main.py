@@ -35,6 +35,39 @@ def mixture_of_nine(scale=0.1):
     cat=tfd.Categorical(probs=tf.ones([9], dtype=tf.float32)/9.),
     components=components)
 
+class RingDistribution:
+  def __init__(self, radii):
+    self._radii = radii
+
+  def sample(self, n):
+    b = tfd.Bernoulli(logits=0.).sample(n)
+    radius = self._radii[0] + tf.to_float(b) * tf.to_float(self._radii[1] - self._radii[0])
+
+    u = tfd.Uniform(low=0., high=2*np.pi).sample(n)
+    x = radius * tf.math.sin(u) + tfd.Normal(loc=0., scale=0.1).sample(n)
+    y = radius * tf.math.cos(u) + tfd.Normal(loc=0., scale=0.1).sample(n)
+
+
+    return tf.stack((x, y), axis=-1)
+
+#def ring_distribution():
+#  """
+#  The ring dataset contains the points uniformly sampled along three circles
+#  with radii (1, 3, 5) and N(0, 0.1^2) noise in the radial direction and extra
+#  dimensions.
+#  """
+#  radii = [1., 3., 5.]
+#  # Create a ring
+#  u = tfd.Uniform(low=0., high=2*np.pi)
+#  x = radius * tf.math.sin(u)
+#  y = radius * tf.math. 
+#
+#
+#  tfd.Mixture(
+#      cat=tfd.Categorical(logits=[0., 0., 0.]),
+
+
+
 
 def plot_mixture():
   x = tf.range(-2, 2, delta=0.1)
@@ -52,8 +85,8 @@ def plot_mixture():
   plt.colorbar()
   plt.show()
 
-def mlp(inputs, layer_sizes, 
-        inner_activation=tf.math.tanh, 
+def mlp(inputs, layer_sizes,
+        inner_activation=tf.math.tanh,
         final_activation=tf.math.log_sigmoid,
         name=None):
   """Creates a simple multi-layer perceptron."""
@@ -181,7 +214,7 @@ def make_nis_graph(batch_size=16,
                    mlp_layers=[10,10],
                    dtype=tf.float32):
 
-  target_dist = mixture_of_nine()
+  target_dist = RingDistribution([.5, 1.]) #mixture_of_nine()
   z_target = target_dist.sample(batch_size)
 
   proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2], dtype=dtype),
@@ -248,7 +281,7 @@ def main(unused_argv):
         batch_size=FLAGS.batch_size,
         K=128,
         lr=FLAGS.learning_rate,
-        mlp_layers=[20,20],
+        mlp_layers=[10, 10],
         dtype=tf.float32)
         
     log_hooks = make_log_hooks(global_step, loss) 
