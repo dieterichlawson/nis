@@ -27,10 +27,9 @@ def get_mnist(batch_size, split="train"):
   dataset = dataset.prefetch(1024)
   itr = dataset.make_one_shot_iterator()
   ims, labels = itr.get_next()
-  ims -= mean[tf.newaxis,:]
-  ims = tf.reshape(ims, [batch_size, 784])
+    ims = tf.reshape(ims, [batch_size, 784])
   labels = tf.reshape(labels, [batch_size])
-  return ims, labels
+  return ims, labels, mean[tf.newaxis,:]
 
 def get_images(path):
   with gzip.open(path) as f:

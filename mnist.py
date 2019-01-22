@@ -183,7 +183,7 @@ def main(unused_argv):
   with g.as_default():
     print("Running VAE with NIS prior")
 
-    data_batch, _ = mnist_data.get_mnist(
+    data_batch, _, _ = mnist_data.get_mnist(
             batch_size=FLAGS.batch_size,
             split="train")
 
