@@ -8,8 +8,13 @@ import mnist_data
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
-tf.app.flags.DEFINE_enum("algo", "lars", ["lars","nis"],
-                         "The algorithm to run.")
+
+tf.app.flags.DEFINE_integer("latent_dim", 32,
+                            "Dimension of the latent space of the VAE.")
+tf.app.flags.DEFINE_integer("K", 128,
+                            "Number of samples for NIS model.")
+tf.app.flags.DEFINE_float("scale_min", 1e-5,
+                             "Minimum scale for various distributions.")
 tf.app.flags.DEFINE_float("learning_rate", 1e-4,
                            "The learning rate to use for ADAM or SGD.")
 tf.app.flags.DEFINE_integer("batch_size", 4,
@@ -22,155 +27,138 @@ tf.app.flags.DEFINE_integer("summarize_every", int(1e3),
                             "The number of steps between each evaluation.")
 FLAGS = tf.app.flags.FLAGS
 
-
-def reduce_logavgexp(input_tensor, axis=None, keepdims=None, name=None):
-  dims = tf.shape(input_tensor)
-  if axis is not None:
-    dims = tf.gather(dims, axis)
-  denominator = tf.reduce_prod(dims)
-  return (tf.reduce_logsumexp(input_tensor, 
-                              axis=axis, 
-                              keepdims=keepdims, 
-                              name=name) - tf.log(tf.to_float(denominator)))
-
-def mlp(inputs, layer_sizes,
-        inner_activation=tf.math.tanh,
+def mlp(inputs, 
+        layer_sizes,
+        hidden_activation=tf.math.tanh,
         final_activation=tf.math.log_sigmoid,
         name=None):
   """Creates a simple multi-layer perceptron."""
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
-    for i, s in enumerate(layer_sizes):
+    for i, s in enumerate(layer_sizes[:-1]):
       inputs = tf.layers.dense(inputs,
                                units=s,
-                               activation=inner_activation,
+                               activation=hidden_activation,
                                kernel_initializer=tf.initializers.glorot_uniform,
                                name="layer_%d" % (i+1))
     output = tf.layers.dense(inputs,
-                             units=1,
+                             units=layer_sizes[-1],
                              activation=final_activation,
                              kernel_initializer=tf.initializers.glorot_uniform,
                              name="layer_%d" % (len(layer_sizes)+1))
   return output
 
-def make_lars_loss(target_samples,
-                   Z_batch_size=1024,
-                   accept_fn_layers=[10, 10], 
-                   log_Z_ema_decay=0.99,
-                   dtype=tf.float32):
-  # Create proposal as standard 2-D Gaussian
-  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2], dtype=dtype),
-                                        scale_diag=tf.ones([2], dtype=dtype))
- 
-  z_r = target_samples
+def conditional_normal(
+        inputs,
+        data_dim,
+        hidden_sizes,
+        hidden_activation=tf.math.tanh,
+        scale_min=1e-5,
+        name=None):
+    raw_params = mlp(inputs, 
+                     hidden_sizes + [2*data_dim],
+                     hidden_activation=hidden_activation,
+                     final_activation=None,
+                     name=name)
+    loc, raw_scale = tf.split(raw_params, 2, axis=-1)
+    scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
+    return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
+
+def make_nis_lower_bound(target_samples, K, hidden_layer_sizes):
+  """Constructs an NIS distribution for the given target samples and parameters.
+  
+  Args:
+    target_samples: [batch_size, data_size]
+  """
   batch_size = tf.shape(target_samples)[0]
+  data_size = tf.shape(target_samples)[1]
+  dtype = target_samples.dtype
+  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([data_size], dtype=dtype),
+                                        scale_diag=tf.ones([data_size], dtype=dtype))
+  proposal_samples = proposal.sample([batch_size, K])  #[batch_size, K, data_size]
+
+  mlp_fn = functools.partial(
+             mlp,
+             layer_sizes=hidden_layer_sizes + [1],
+             final_activation=None,
+             name="nis_mlp")
+
+  log_energy_target = tf.reshape(mlp_fn(target_samples), [batch_size])
+  log_energy_proposal = tf.reshape(mlp_fn(proposal_samples), [batch_size, K])
+
+  proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1) # [batch_size]
   
-  # Compute log a(z), log pi(z), and log q(z)
-  log_a_z_r = tf.reshape(mlp(z_r, accept_fn_layers, name="a"), [batch_size]) # [batch_size]
-  log_pi_z_r = proposal.log_prob(z_r) # [batch_size]
+  #[batch_size]
+  denom = tf.reduce_logsumexp(tf.stack([log_energy_target, proposal_lse], axis=-1), axis=1)
+  denom -= tf.log(tf.to_float(K+1))
 
-  # Sample zs from proposal to estimate Z
-  z_s = proposal.sample(Z_batch_size) # [Z_batch_size, 2]
-  # Compute log a(z) for zs sampled from proposal
-  log_a_z_s = tf.reshape(mlp(z_s, accept_fn_layers, name="a"), [Z_batch_size]) # [Z_batch_size]
-  log_Z_curr = reduce_logavgexp(log_a_z_s) # []
+  lower_bound = proposal.log_prob(target_samples) +  log_energy_target - denom
+  return lower_bound
+
+def vae(data,
+        latent_dim,
+        q_fn,
+        prior_fn,
+        generative_fn):
+  batch_size = tf.shape(data)[0]
+  data_dim = data.get_shape().as_list()[1]
+
+  # Construct approximate posterior and sample z.
+  q = q_fn(data)
+  z = q.sample()
+  log_q_z = q.log_prob(z)
+
+  # compute the prior prob of z
+  log_p_z = prior_fn(z)
+
+  # Compute the model logprob of the data 
+  p_x_given_z = generative_fn(z)
+  log_p_x_given_z = p_x_given_z.log_prob(data)
+
+  elbo = log_p_z + log_p_x_given_z - log_q_z
+  return elbo
+
+def make_vae_with_nis_prior(
+        data,
+        latent_dim,
+        K,
+        nis_hidden_sizes,
+        q_hidden_sizes,
+        p_x_hidden_sizes,
+        scale_min=1e-5,
+        lr=1e-4):
+
+  q_fn = functools.partial(
+          conditional_normal,
+          data_dim=latent_dim,
+          hidden_sizes=q_hidden_sizes,
+          scale_min=scale_min,
+          name="q")
+
+  prior_fn = functools.partial(
+          make_nis_lower_bound, 
+          K=K, 
+          hidden_layer_sizes=nis_hidden_sizes)
+
+  generative_fn = functools.partial(
+          conditional_normal,
+          data_dim=data.get_shape().as_list()[1],
+          hidden_sizes=p_x_hidden_sizes,
+          scale_min=scale_min,
+          name="generative")
+
+  elbo = vae(data,
+             latent_dim,
+             q_fn,
+             prior_fn,
+             generative_fn)
   
-  # Set up EMA of log_Z
-  log_Z_ema = tf.train.ExponentialMovingAverage(decay=log_Z_ema_decay)
-  log_Z_curr_sg = tf.stop_gradient(log_Z_curr)
-  maintain_log_Z_ema_op = log_Z_ema.apply([log_Z_curr_sg])
-  
-  # In forward pass, log Z is the smoothed ema version of log Z
-  # In backward pass it is the current estimate of log Z, log_Z_curr_avg
-  log_Z = log_Z_curr + tf.stop_gradient(log_Z_ema.average(log_Z_curr_sg) - log_Z_curr)
-  
-  loss = -(log_pi_z_r + log_a_z_r - log_Z[tf.newaxis]) # [batch_size]
-
-  tf.summary.scalar("log Z ema", log_Z_ema.average(log_Z_curr_sg))
-  return tf.reduce_mean(loss), maintain_log_Z_ema_op
-
-def make_lars_graph(target_samples,
-                    lr=1e-4, 
-                    mlp_layers=[10, 10], 
-                    dtype=tf.float32):
-  loss, ema_op = make_lars_loss(target_samples,
-                                accept_fn_layers=mlp_layers,
-                                dtype=dtype)
-  
-  global_step = tf.train.get_or_create_global_step()
-  opt = tf.train.AdamOptimizer(lr)
-  grads = opt.compute_gradients(loss)
-  with tf.control_dependencies([ema_op]):
-    apply_grads_op = opt.apply_gradients(grads, global_step=global_step)
-  # Create summaries.
-  density_image_summary(dtype=dtype, mlp_name="a", mlp_layers=mlp_layers)
-  tf.summary.scalar("loss", loss)
-  return loss, apply_grads_op, global_step
-
-@tfmpl.figure_tensor
-def plot_density(unnorm_density):
-  fig = tfmpl.create_figure()
-  ax = fig.add_subplot(111)
-  ax.imshow(unnorm_density, extent=(-2, 2, -2, 2), interpolation='none')
-  ax.grid(False)
-  return fig
-
-def density_image_summary(mlp_name="a", 
-                          final_activation=tf.math.sigmoid,
-                          mlp_layers=[10,10],
-                          dtype=tf.float32):
-  x = tf.range(-2, 2, delta=0.1)
-  X, Y = tf.meshgrid(x, x)
-  z = tf.transpose(tf.reshape(tf.stack([X,Y], axis=0), [2,-1]))
-  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2], dtype=dtype),
-                                        scale_diag=tf.ones([2], dtype=dtype))
-  
-  pi_z = proposal.prob(z)
-  a_z = tf.squeeze(mlp(z, mlp_layers, name=mlp_name, final_activation=final_activation))
-
-  unnorm_density = tf.reshape(pi_z*a_z, [40, 40])
-
-  plot = plot_density(unnorm_density)
-  tf.summary.image("density", plot, max_outputs=1, collections=["infrequent_summaries"])
-
-# Code for NIS model
-def make_nis_graph(target_samples,
-                   K=100,
-                   lr=1e-4,
-                   mlp_layers=[10,10],
-                   dtype=tf.float32):
-  batch_size = tf.shape(target_samples)[0]
-  data_dim = tf.shape(target_samples)[1]
-  z_target = target_samples
-  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([data_dim], dtype=dtype),
-                                        scale_diag=tf.ones([data_dim], dtype=dtype))
-  z_proposal = proposal.sample(K)
-
-  neg_energy_target = tf.squeeze(mlp(z_target, mlp_layers, name="neg_energy", 
-    final_activation=None))
-  neg_energy_proposal = tf.squeeze(mlp(z_proposal, mlp_layers, name="neg_energy", 
-    final_activation=None))  
- 
-  proposal_lse = tf.reduce_logsumexp(neg_energy_proposal, keepdims=True) 
-
-  denom = (tf.reduce_logsumexp(tf.stack((neg_energy_target,
-                      tf.tile(proposal_lse, [batch_size])), axis=-1), axis=-1) -
-                      tf.log(tf.to_float(K+1)))
-
-  lower_bound = (proposal.log_prob(z_target) + 
-                 neg_energy_target -
-                 tf.reduce_logsumexp(tf.stack((neg_energy_target,
-                      tf.tile(proposal_lse, [batch_size])), axis=-1), axis=-1) + 
-                 tf.log(tf.to_float(K+1)))
-  lower_bound = tf.reduce_mean(lower_bound)
-
-  tf.summary.scalar("lower_bound", lower_bound)
-  #tf.summary.scalar("negative_energy_target", neg_energy_target)
-  #density_image_summary(mlp_name="neg_energy", mlp_layers=mlp_layers, final_activation=tf.math.exp)
+  elbo_avg = tf.reduce_mean(elbo)
+  tf.summary.scalar("elbo", elbo_avg)
   global_step = tf.train.get_or_create_global_step()
   opt = tf.train.AdamOptimizer(learning_rate=lr)
-  grads = opt.compute_gradients(-lower_bound)
+  grads = opt.compute_gradients(-elbo_avg)
   train_op = opt.apply_gradients(grads, global_step=global_step)
-  return lower_bound, train_op, global_step
+  return elbo_avg, train_op, global_step
 
 def make_log_hooks(global_step, loss):
   hooks = []
@@ -193,26 +181,24 @@ def make_log_hooks(global_step, loss):
 def main(unused_argv):
   g = tf.Graph()
   with g.as_default():
-    target_batch, _ = mnist_data.get_mnist(
+    print("Running VAE with NIS prior")
+
+    data_batch, _ = mnist_data.get_mnist(
             batch_size=FLAGS.batch_size,
             split="train")
-    if FLAGS.algo == "lars":
-      print("Running LARS")
-      loss, train_op, global_step = make_lars_graph(
-        target_batch,
-        lr=FLAGS.learning_rate, 
-        dtype=tf.float32)
-      pass
-    elif FLAGS.algo == "nis":
-      print("Running NIS")
-      loss, train_op, global_step = make_nis_graph(
-        target_batch,
-        K=128,
-        lr=FLAGS.learning_rate,
-        mlp_layers=[100, 50, 50, 20],
-        dtype=tf.float32)
+
+    loss, train_op, global_step = make_vae_with_nis_prior(
+      data_batch,
+      latent_dim=FLAGS.latent_dim,
+      K=FLAGS.K,
+      nis_hidden_sizes=[20,20],
+      q_hidden_sizes=[100,50],
+      p_x_hidden_sizes=[50,50],
+      scale_min=FLAGS.scale_min,
+      lr=FLAGS.learning_rate)
         
     log_hooks = make_log_hooks(global_step, loss) 
+
     with tf.train.MonitoredTrainingSession(
         master="",
         is_chief=True,
@@ -225,7 +211,6 @@ def main(unused_argv):
       while True:
         if sess.should_stop() or cur_step > FLAGS.max_steps:
           break
-        # run a step
         _, cur_step = sess.run([train_op, global_step])
 
 if __name__ == "__main__":
