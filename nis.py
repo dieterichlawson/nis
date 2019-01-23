@@ -1,3 +1,4 @@
+import os
 import tensorflow as tf
 import tensorflow_probability as tfp
 tfd = tfp.distributions
@@ -9,17 +10,21 @@ import mnist_data
 tf.logging.set_verbosity(tf.logging.INFO)
 
 
-tf.app.flags.DEFINE_integer("latent_dim", 32,
+tf.app.flags.DEFINE_enum("algo", "nis_vae_proposal",
+                         ["nis_vae_proposal", "nis_gaussian_proposal", 
+                           "vae_gaussian_prior", "vae_nis_prior"],
+                         "Algorithm to run.")
+tf.app.flags.DEFINE_integer("latent_dim", 50,
                             "Dimension of the latent space of the VAE.")
 tf.app.flags.DEFINE_integer("K", 128,
                             "Number of samples for NIS model.")
 tf.app.flags.DEFINE_float("scale_min", 1e-5,
                              "Minimum scale for various distributions.")
-tf.app.flags.DEFINE_float("learning_rate", 1e-4,
+tf.app.flags.DEFINE_float("learning_rate", 3e-4,
                            "The learning rate to use for ADAM or SGD.")
 tf.app.flags.DEFINE_integer("batch_size", 4,
                              "The number of examples per batch.")
-tf.app.flags.DEFINE_string("logdir", "/tmp/lars",
+tf.app.flags.DEFINE_string("logdir", "/tmp/nis",
                             "Directory for summaries and checkpoints.")
 tf.app.flags.DEFINE_integer("max_steps", int(1e6),
                             "The number of steps to run training for.")
@@ -63,36 +68,18 @@ def conditional_normal(
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
     return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
 
-def make_nis_lower_bound(target_samples, K, hidden_layer_sizes):
-  """Constructs an NIS distribution for the given target samples and parameters.
-  
-  Args:
-    target_samples: [batch_size, data_size]
-  """
-  batch_size = tf.shape(target_samples)[0]
-  data_size = tf.shape(target_samples)[1]
-  dtype = target_samples.dtype
-  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([data_size], dtype=dtype),
-                                        scale_diag=tf.ones([data_size], dtype=dtype))
-  proposal_samples = proposal.sample([batch_size, K])  #[batch_size, K, data_size]
-
-  mlp_fn = functools.partial(
-             mlp,
-             layer_sizes=hidden_layer_sizes + [1],
-             final_activation=None,
-             name="nis_mlp")
-
-  log_energy_target = tf.reshape(mlp_fn(target_samples), [batch_size])
-  log_energy_proposal = tf.reshape(mlp_fn(proposal_samples), [batch_size, K])
-
-  proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1) # [batch_size]
-  
-  #[batch_size]
-  denom = tf.reduce_logsumexp(tf.stack([log_energy_target, proposal_lse], axis=-1), axis=1)
-  denom -= tf.log(tf.to_float(K+1))
-
-  lower_bound = proposal.log_prob(target_samples) +  log_energy_target - denom
-  return lower_bound
+def conditional_bernoulli(
+        inputs,
+        data_dim,
+        hidden_sizes,
+        hidden_activation=tf.math.tanh,
+        name=None):
+    bern_logits = mlp(inputs, 
+                      hidden_sizes + [data_dim],
+                      hidden_activation=hidden_activation,
+                      final_activation=None,
+                      name=name)
+    return tfd.Bernoulli(logits=bern_logits)
 
 def vae(data,
         latent_dim,
@@ -124,8 +111,7 @@ def make_vae_with_nis_prior(
         nis_hidden_sizes,
         q_hidden_sizes,
         p_x_hidden_sizes,
-        scale_min=1e-5,
-        lr=1e-4):
+        scale_min=1e-5):
 
   q_fn = functools.partial(
           conditional_normal,
@@ -144,21 +130,67 @@ def make_vae_with_nis_prior(
           data_dim=data.get_shape().as_list()[1],
           hidden_sizes=p_x_hidden_sizes,
           scale_min=scale_min,
-          name="generative")
+          name="vae_p_x")
 
-  elbo = vae(data,
-             latent_dim,
-             q_fn,
-             prior_fn,
-             generative_fn)
+  return vae(data, latent_dim, q_fn, prior_fn, generative_fn)
+
+def make_vae_with_gaussian_prior(
+        data,
+        latent_dim,
+        q_hidden_sizes,
+        p_x_hidden_sizes,
+        scale_min=1e-5):
+
+  dtype = data.dtype
+  q_fn = functools.partial(
+          conditional_normal,
+          data_dim=latent_dim,
+          hidden_sizes=q_hidden_sizes,
+          scale_min=scale_min,
+          name="q")
+
+  prior_fn = tfd.MultivariateNormalDiag(loc=tf.zeros([latent_dim], dtype=dtype),
+                                        scale_diag=tf.ones([latent_dim], dtype=dtype)).log_prob
+
+  generative_fn = functools.partial(
+          conditional_normal,
+          data_dim=data.get_shape().as_list()[1],
+          hidden_sizes=p_x_hidden_sizes,
+          scale_min=scale_min,
+          name="vae_p_x")
+
+  return vae(data, latent_dim, q_fn, prior_fn, generative_fn)
+
+def make_nis_with_gaussian_proposal(target_samples, K, hidden_layer_sizes):
+  """Constructs an NIS distribution for the given target samples and parameters.
   
-  elbo_avg = tf.reduce_mean(elbo)
-  tf.summary.scalar("elbo", elbo_avg)
-  global_step = tf.train.get_or_create_global_step()
-  opt = tf.train.AdamOptimizer(learning_rate=lr)
-  grads = opt.compute_gradients(-elbo_avg)
-  train_op = opt.apply_gradients(grads, global_step=global_step)
-  return elbo_avg, train_op, global_step
+  Args:
+    target_samples: [batch_size, data_size]
+  """
+  batch_size = tf.shape(target_samples)[0]
+  data_size = tf.shape(target_samples)[1]
+  dtype = target_samples.dtype
+  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([data_size], dtype=dtype),
+                                        scale_diag=tf.ones([data_size], dtype=dtype))
+  proposal_samples = proposal.sample([batch_size, K])  #[batch_size, K, data_size]
+
+  mlp_fn = functools.partial(
+             mlp,
+             layer_sizes=hidden_layer_sizes + [1],
+             final_activation=None,
+             name="nis_mlp")
+
+  log_energy_target = tf.reshape(mlp_fn(target_samples), [batch_size])
+  log_energy_proposal = tf.reshape(mlp_fn(proposal_samples), [batch_size, K])
+
+  proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1) # [batch_size]
+  
+  #[batch_size]
+  denom = tf.reduce_logsumexp(tf.stack([log_energy_target, proposal_lse], axis=-1), axis=1)
+  denom -= tf.log(tf.to_float(K+1))
+
+  lower_bound = proposal.log_prob(target_samples) +  log_energy_target - denom
+  return lower_bound
 
 def make_nis_with_vae_proposal(
         data,
@@ -210,35 +242,15 @@ def make_nis_with_vae_proposal(
   lower_bound = log_p_data_lb + log_energy_target - denom
   return lower_bound
 
-def make_nis_with_vae_proposal_graph(
-        data,
-        K,
-        vae_latent_dim,
-        nis_hidden_sizes,
-        q_hidden_sizes,
-        p_x_hidden_sizes,
-        scale_min=1e-5,
-        lr=1e-4):
-  elbo = make_nis_with_vae_proposal(data, K, vae_latent_dim, nis_hidden_sizes, 
-          q_hidden_sizes, p_x_hidden_sizes,
-          scale_min=scale_min, lr=lr)
-  elbo_avg = tf.reduce_mean(elbo)
-  tf.summary.scalar("elbo", elbo_avg)
-  global_step = tf.train.get_or_create_global_step()
-  opt = tf.train.AdamOptimizer(learning_rate=lr)
-  grads = opt.compute_gradients(-elbo_avg)
-  train_op = opt.apply_gradients(grads, global_step=global_step)
-  return elbo_avg, train_op, global_step
-
-def make_log_hooks(global_step, loss):
+def make_log_hooks(global_step, elbo):
   hooks = []
   def summ_formatter(d):
-    return ("Step {step}, loss: {loss:.5f}".format(**d))
-  loss_hook = tf.train.LoggingTensorHook(
-      {"step": global_step, "loss": loss},
+    return ("Step {step}, elbo: {elbo:.5f}".format(**d))
+  elbo_hook = tf.train.LoggingTensorHook(
+      {"step": global_step, "elbo": elbo},
       every_n_iter=FLAGS.summarize_every,
       formatter=summ_formatter)
-  hooks.append(loss_hook)
+  hooks.append(elbo_hook)
   if len(tf.get_collection("infrequent_summaries")) > 0:
     infrequent_summary_hook = tf.train.SummarySaverHook(
         save_steps=10000,
@@ -249,26 +261,58 @@ def make_log_hooks(global_step, loss):
   return hooks
 
 def main(unused_argv):
+  FLAGS.logdir = os.path.join(FLAGS.logdir, FLAGS.algo)
   g = tf.Graph()
   with g.as_default():
-    print("Running VAE with NIS prior")
 
     data_batch, _, _ = mnist_data.get_mnist(
             batch_size=FLAGS.batch_size,
             split="train")
 
-    #loss, train_op, global_step = make_vae_with_nis_prior(
-    loss, train_op, global_step = make_nis_with_vae_proposal_graph(
-      data_batch,
-      K=FLAGS.K,
-      vae_latent_dim=FLAGS.latent_dim,
-      nis_hidden_sizes=[200,100],
-      q_hidden_sizes=[100,50],
-      p_x_hidden_sizes=[100,250],
-      scale_min=FLAGS.scale_min,
-      lr=FLAGS.learning_rate)
-        
-    log_hooks = make_log_hooks(global_step, loss) 
+    if FLAGS.algo == "nis_vae_proposal":
+      print("Running NIS with VAE proposal")
+      elbo = make_nis_with_vae_proposal(
+              data_batch,
+              K=FLAGS.K,
+              vae_latent_dim=FLAGS.latent_dim,
+              nis_hidden_sizes=[200, 100],
+              q_hidden_sizes=[300, 300],
+              p_x_hidden_sizes=[300, 300],
+              scale_min=FLAGS.scale_min)
+    elif FLAGS.algo == "nis_gaussian_proposal":
+      print("Running NIS with Gaussian proposal")
+      elbo = make_nis_with_gaussian_proposal(
+              data_batch, 
+              K=FLAGS.K, 
+              hidden_layer_sizes=[200,100])
+    elif FLAGS.algo == "vae_nis_prior":
+      print("Running VAE with NIS prior")
+      elbo = make_vae_with_nis_prior(
+              data_batch,
+              latent_dim=FLAGS.latent_dim,
+              K=FLAGS.K,
+              nis_hidden_sizes=[200, 100],
+              q_hidden_sizes=[300, 300],
+              p_x_hidden_sizes=[300, 300],
+              scale_min=FLAGS.scale_min)
+    elif FLAGS.algo == "vae_gaussian_prior":
+      print("Running VAE with gaussian prior")
+      elbo = make_vae_with_gaussian_prior(
+              data_batch,
+              latent_dim=FLAGS.latent_dim,
+              q_hidden_sizes=[300, 300],
+              p_x_hidden_sizes=[300, 300],
+              scale_min=1e-5)
+
+    # Finish constructing the graph
+    elbo_avg = tf.reduce_mean(elbo)
+    tf.summary.scalar("elbo", elbo_avg)
+    global_step = tf.train.get_or_create_global_step()
+    opt = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
+    grads = opt.compute_gradients(-elbo_avg)
+    train_op = opt.apply_gradients(grads, global_step=global_step)
+
+    log_hooks = make_log_hooks(global_step, elbo_avg) 
 
     with tf.train.MonitoredTrainingSession(
         master="",
