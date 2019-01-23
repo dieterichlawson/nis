@@ -206,7 +206,7 @@ def make_nis_with_vae_proposal(
   dtype = data.dtype
   # Sample z_1:K from the VAE
   vae_prior = tfd.MultivariateNormalDiag(loc=tf.zeros([vae_latent_dim], dtype=dtype),
-                                        scale_diag=tf.ones([vae_latent_dim], dtype=dtype))
+                                         scale_diag=tf.ones([vae_latent_dim], dtype=dtype))
   z = vae_prior.sample([batch_size, K])  #[batch_size, K, vae_latent_dim]
   # Use zs to sample xs
   p_x_given_z_fn = functools.partial(conditional_normal,
