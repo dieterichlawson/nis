@@ -44,7 +44,7 @@ def make_log_hooks(global_step, elbo):
   hooks.append(elbo_hook)
   if len(tf.get_collection("infrequent_summaries")) > 0:
     infrequent_summary_hook = tf.train.SummarySaverHook(
-        save_steps=10000,
+        save_steps=1000,
         output_dir=FLAGS.logdir,
         summary_op=tf.summary.merge_all(key="infrequent_summaries")
     )
@@ -63,25 +63,26 @@ def main(unused_argv):
 
     data_batch, _, _ = mnist_data.get_mnist(
             batch_size=FLAGS.batch_size,
-            split="train")
+            split="train",
+            binarized="dynamic")
+    data_batch = tf.cast(data_batch, tf.float32)
     data_dim = data_batch.get_shape().as_list()[1]
     if FLAGS.algo == "nis_vae_proposal":
       print("Running NIS with VAE proposal")
-      proposal = base.GaussianVAE(
+      proposal = base.BernoulliVAE(
               latent_dim=FLAGS.latent_dim,
               data_dim=data_dim,
-              decoder_hidden_sizes=[300,300],
-              q_hidden_sizes=[300,300],
+              decoder_hidden_sizes=[300, 300],
+              q_hidden_sizes=[300, 300],
               scale_min=FLAGS.scale_min,
-              dtype=data_batch.dtype)
+              dtype=tf.float32)
       nis = base.NIS(
               K=FLAGS.K,
               data_dim=data_dim,
-              energy_hidden_sizes=[200,100],
+              energy_hidden_sizes=[200, 100],
               proposal=proposal,
-              dtype=data_batch.dtype)
+              dtype=tf.float32)
       elbo = nis.log_prob(data_batch)
-
     sample_summary(nis)
     # Finish constructing the graph
     elbo_avg = tf.reduce_mean(elbo)

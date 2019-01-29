@@ -4,6 +4,91 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 import functools
 
+
+def _safe_log(x, eps=1e-8):
+  return tf.log(tf.clip_by_value(x, eps, 1.0))
+
+class GSTBernoulli(tfd.Bernoulli):
+
+  def __init__(self,
+               temperature,
+               logits=None,
+               probs=None,
+               validate_args=False,
+               allow_nan_stats=True,
+               name="GSTBernoulli",
+               dtype=tf.int32):
+    """Construct GSTBernoulli distributions.
+    Args:
+      temperature: An 0-D `Tensor`, representing the temperature
+        of a set of GSTBernoulli distributions. The temperature should be
+        positive.
+      logits: An N-D `Tensor` representing the log-odds
+        of a positive event. Each entry in the `Tensor` parametrizes
+        an independent GSTBernoulli distribution where the probability of an
+        event is sigmoid(logits). Only one of `logits` or `probs` should be
+        passed in.
+      probs: An N-D `Tensor` representing the probability of a positive event.
+        Each entry in the `Tensor` parameterizes an independent Bernoulli
+        distribution. Only one of `logits` or `probs` should be passed in.
+      validate_args: Python `bool`, default `False`. When `True` distribution
+        parameters are checked for validity despite possibly degrading runtime
+        performance. When `False` invalid inputs may silently render incorrect
+        outputs.
+      allow_nan_stats: Python `bool`, default `True`. When `True`, statistics
+        (e.g., mean, mode, variance) use the value "`NaN`" to indicate the
+        result is undefined. When `False`, an exception is raised if one or
+        more of the statistic's batch members are undefined.
+      name: Python `str` name prefixed to Ops created by this class.
+    Raises:
+      ValueError: If both `probs` and `logits` are passed, or if neither.
+    """
+    with tf.name_scope(name, values=[logits, probs, temperature]) as name:
+      self._temperature = tf.convert_to_tensor(
+          temperature, name="temperature", dtype=dtype)
+      if validate_args:
+        with tf.control_dependencies([tf.assert_positive(temperature)]):
+          self._temperature = tf.identity(self._temperature)
+      super(GSTBernoulli, self).__init__(
+              logits=logits,
+              probs=probs,
+              validate_args=validate_args,
+              allow_nan_stats=allow_nan_stats,
+              dtype=dtype,
+              name=name)
+
+  @property
+  def temperature(self):
+    """Distribution parameter for the location."""
+    return self._temperature
+
+  def _sample_n(self, n, seed=None):
+    new_shape = tf.concat([[n], self.batch_shape_tensor()], 0)
+    u = tf.random_uniform(new_shape, seed=seed, dtype=self.probs.dtype)
+    logistic = _safe_log(u) - _safe_log(1-u)
+    hard_sample = tf.cast(tf.greater(self.logits + logistic, 0), self.dtype)
+    soft_sample = tf.math.sigmoid((self.logits + logistic)/self.temperature)
+    sample = soft_sample + tf.stop_gradient(hard_sample - soft_sample)
+    return tf.cast(sample, self.dtype)
+
+  def log_prob(self, value, name="log_prob"):
+    lp = super(GSTBernoulli, self).log_prob(value, name=name)
+    return tf.reduce_sum(lp, axis=-1)
+
+
+class MultivariateTruncatedNormal(tfd.TruncatedNormal):
+
+  def log_prob(self, value, name="log_prob"):
+    lp = super(MultivariateTruncatedNormal, self).log_prob(value, name=name)
+    return tf.reduce_sum(lp, axis=-1)
+
+
+class MultivariateBernoulli(tfd.Bernoulli):
+
+  def log_prob(self, value, name="log_prob"):
+    lp = super(MultivariateBernoulli, self).log_prob(value, name=name)
+    return tf.reduce_sum(lp, axis=-1)
+
 def mlp(inputs,
         layer_sizes,
         hidden_activation=tf.math.tanh,
@@ -30,6 +115,7 @@ def conditional_normal(
         hidden_sizes,
         hidden_activation=tf.math.tanh,
         scale_min=1e-5,
+        truncate=False,
         name=None):
     raw_params = mlp(inputs,
                      hidden_sizes + [2*data_dim],
@@ -38,21 +124,25 @@ def conditional_normal(
                      name=name)
     loc, raw_scale = tf.split(raw_params, 2, axis=-1)
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
-    return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
+    if truncate:
+      loc = tf.math.sigmoid(loc)
+      return MultivariateTruncatedNormal(loc=loc, scale=scale, low=0., high=1.)
+    else:
+      return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
 
 def conditional_bernoulli(
         inputs,
         data_dim,
         hidden_sizes,
         hidden_activation=tf.math.tanh,
+        dtype=tf.int32,
         name=None):
     bern_logits = mlp(inputs,
                       hidden_sizes + [data_dim],
                       hidden_activation=hidden_activation,
                       final_activation=None,
                       name=name)
-    return tfd.Bernoulli(logits=bern_logits)
-
+    return GSTBernoulli(temperature=0.7, logits=bern_logits, dtype=dtype)
 
 class VAE(object):
   """Variational autoencoder with continuous latent space."""
@@ -85,7 +175,7 @@ class VAE(object):
             hidden_sizes=q_hidden_sizes,
             scale_min=scale_min,
             name="q")
-
+    self.dtype = dtype
     if prior is None:
       self.prior = tfd.MultivariateNormalDiag(loc=tf.zeros([latent_dim], dtype=dtype),
                                               scale_diag=tf.ones([latent_dim], dtype=dtype))
@@ -114,7 +204,7 @@ class VAE(object):
   def sample(self, sample_shape=[1]):
     z = self.prior.sample(sample_shape)
     p_x_given_z = self.decoder(z)
-    return p_x_given_z.sample()
+    return tf.cast(p_x_given_z.sample(), self.dtype)
 
 class GaussianVAE(VAE):
   """VAE with Gaussian generative distribution."""
@@ -135,6 +225,7 @@ class GaussianVAE(VAE):
             data_dim=data_dim,
             hidden_sizes=decoder_hidden_sizes,
             scale_min=scale_min,
+            truncate=True,
             name="decoder")
 
     super().__init__(
@@ -164,6 +255,7 @@ class BernoulliVAE(VAE):
             conditional_bernoulli,
             data_dim=data_dim,
             hidden_sizes=decoder_hidden_sizes,
+            dtype=dtype,
             name="decoder")
 
     super().__init__(latent_dim, decoder_fn, q_hidden_sizes, 
@@ -206,7 +298,7 @@ class NIS(object):
     batch_size = tf.shape(data)[0]
 
     proposal_samples = self.proposal.sample([batch_size, self.K])  #[batch_size, K, data_size]
-
+    #proposal_samples = tf.clip_by_value(proposal_samples, 0., 1.)
     log_energy_target = tf.reshape(self.energy_fn(data), [batch_size])
     log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples), [batch_size, self.K])
 
@@ -215,8 +307,8 @@ class NIS(object):
     #[batch_size]
     denom = tf.reduce_logsumexp(tf.stack([log_energy_target, proposal_lse], axis=-1), axis=1)
     denom -= tf.log(tf.to_float(self.K+1))
-
-    lower_bound = self.proposal.log_prob(data) +  log_energy_target - denom
+    proposal_lp = self.proposal.log_prob(data)
+    lower_bound = proposal_lp + log_energy_target - denom
     return lower_bound
 
   def sample(self, sample_shape=[1]):

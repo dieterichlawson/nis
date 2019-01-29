@@ -2,10 +2,12 @@ import os
 import gzip
 import numpy as np
 import tensorflow as tf
+import tensorflow_probability as tfp
+tfd = tfp.distributions
 
 DEFAULT_MNIST_PATH="data/mnist"
 
-def get_mnist(batch_size, split="train"):
+def get_mnist(batch_size, split="train", binarized=None):
   if split == "train":
     im_path = os.path.join(DEFAULT_MNIST_PATH, "train-images-idx3-ubyte.gz")
     lb_path = os.path.join(DEFAULT_MNIST_PATH, "train-labels-idx1-ubyte.gz")
@@ -18,13 +20,16 @@ def get_mnist(batch_size, split="train"):
   mean = np.load(os.path.join(DEFAULT_MNIST_PATH, "train_mean.npy"))
   dataset = tf.data.Dataset.from_tensor_slices((np_ims, np_lbs))
 
-  
+  if binarized == "dynamic":
+      dataset = dataset.map(lambda im, lb: (tfd.Bernoulli(logits=im).sample(), lb))
+      
   if split == "train":
     dataset = dataset.repeat()
     dataset = dataset.shuffle(1024)
 
   dataset = dataset.batch(batch_size)
-  dataset = dataset.prefetch(1024)
+  dataset = dataset.prefetch(128)
+
   itr = dataset.make_one_shot_iterator()
   ims, labels = itr.get_next()
   ims = tf.reshape(ims, [batch_size, 784])
