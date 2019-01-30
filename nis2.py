@@ -28,6 +28,8 @@ tf.app.flags.DEFINE_float("scale_min", 1e-5,
                              "Minimum scale for various distributions.")
 tf.app.flags.DEFINE_float("learning_rate", 3e-4,
                            "The learning rate to use for ADAM or SGD.")
+tf.app.flags.DEFINE_boolean("decay_lr", True,
+                            "Divide the learning rate by 3 every 1e6 iterations.")
 tf.app.flags.DEFINE_integer("batch_size", 16,
                              "The number of examples per batch.")
 tf.app.flags.DEFINE_string("split", "train",
@@ -138,7 +140,17 @@ def main(unused_argv):
     elbo_avg = tf.reduce_mean(elbo)
     tf.summary.scalar("elbo", elbo_avg)
     global_step = tf.train.get_or_create_global_step()
-    opt = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
+    if FLAGS.decay_lr:
+      lr = tf.train.exponential_decay(
+              FLAGS.learning_rate,
+              global_step,
+              decay_steps=int(1e6),
+              decay_rate=1./3.,
+              staircase=True)
+    else:
+      lr = FLAGS.learning_rate
+    tf.summary.scalar("learning rate", lr)
+    opt = tf.train.AdamOptimizer(learning_rate=lr)
     grads = opt.compute_gradients(-elbo_avg)
     train_op = opt.apply_gradients(grads, global_step=global_step)
 
