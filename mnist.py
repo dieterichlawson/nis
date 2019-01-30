@@ -14,7 +14,7 @@ tf.logging.set_verbosity(tf.logging.INFO)
 tf.app.flags.DEFINE_enum("mode", "train", ["train", "eval"],
                          "Mode to run.")
 tf.app.flags.DEFINE_enum("dataset", "raw_mnist",
-                         ["raw_mnist", "dynamic_mnist", "static_mnist", "nine_gaussians"],
+                         ["raw_mnist", "dynamic_mnist", "static_mnist"],
                          "Dataset to use.")
 tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","gaussian", "nis"],
