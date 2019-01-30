@@ -33,13 +33,16 @@ def get_nine_gaussians(batch_size, scale=0.1, spacing=1.0):
 
 DEFAULT_MNIST_PATH="data/mnist"
 
-def get_raw_mnist(batch_size, split="train"):
-  return _get_mnist(batch_size, split=split, binarized=None)
+def get_raw_mnist(batch_size, split="train", repeat=True, shuffle=True, initializable=False):
+  return _get_mnist(batch_size, split=split, binarized=None, 
+          repeat=repeat, shuffle=shuffle, initializable=initializable)
 
-def get_dynamic_mnist(batch_size, split="train"):
-  return _get_mnist(batch_size, split=split, binarized="dynamic")
+def get_dynamic_mnist(batch_size, split="train", repeat=True, shuffle=True, initializable=False):
+  return _get_mnist(batch_size, split=split, binarized="dynamic", 
+          repeat=repeat, shuffle=shuffle, initializable=initializable)
 
-def _get_mnist(batch_size, split="train", binarized=None):
+def _get_mnist(batch_size, split="train", binarized=None, repeat=True, shuffle=True,
+        initializable=False):
   if split == "train":
     im_path = os.path.join(DEFAULT_MNIST_PATH, "train-images-idx3-ubyte.gz")
     lb_path = os.path.join(DEFAULT_MNIST_PATH, "train-labels-idx1-ubyte.gz")
@@ -55,18 +58,23 @@ def _get_mnist(batch_size, split="train", binarized=None):
   if binarized == "dynamic":
       dataset = dataset.map(lambda im, lb: (tfd.Bernoulli(logits=im).sample(), lb))
       
-  if split == "train":
+  if repeat:
     dataset = dataset.repeat()
+  if shuffle:
     dataset = dataset.shuffle(1024)
 
   dataset = dataset.batch(batch_size)
   dataset = dataset.prefetch(128)
 
-  itr = dataset.make_one_shot_iterator()
+  if initializable:
+    itr = dataset.make_initializable_iterator()
+  else:
+    itr = dataset.make_one_shot_iterator()
+
   ims, labels = itr.get_next()
   ims = tf.reshape(ims, [batch_size, 784])
   labels = tf.reshape(labels, [batch_size])
-  return ims, labels, mean[tf.newaxis,:]
+  return ims, labels, mean[tf.newaxis,:], itr
 
 def _load_mnist_images(path):
   with gzip.open(path) as f:
