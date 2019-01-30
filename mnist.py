@@ -14,7 +14,7 @@ tf.logging.set_verbosity(tf.logging.INFO)
 tf.app.flags.DEFINE_enum("mode", "train", ["train", "eval"],
                          "Mode to run.")
 tf.app.flags.DEFINE_enum("dataset", "raw_mnist",
-                         ["raw_mnist", "dynamic_mnist", "nine_gaussians"],
+                         ["raw_mnist", "dynamic_mnist", "static_mnist", "nine_gaussians"],
                          "Dataset to use.")
 tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","gaussian"],
@@ -70,11 +70,15 @@ def sample_summary(model):
 
 def get_dataset(dataset, batch_size, split, repeat=True, shuffle=True, initializable=False):
   if dataset == "dynamic_mnist":
-    data_batch, _, mean, itr = datasets.get_dynamic_mnist(batch_size=batch_size, split=split, 
+    data_batch, mean, itr = datasets.get_dynamic_mnist(batch_size=batch_size, split=split, 
             repeat=repeat, shuffle=shuffle, initializable=initializable)
   elif dataset == "raw_mnist":
-    data_batch, _, mean, itr = datasets.get_raw_mnist(batch_size=batch_size, split=split,
+    data_batch, mean, itr = datasets.get_raw_mnist(batch_size=batch_size, split=split,
             repeat=repeat, shuffle=shuffle, initializable=initializable)
+  elif dataset == "static_mnist":
+    data_batch, mean, itr = datasets.get_static_mnist(batch_size=batch_size, split=split,
+            repeat=repeat, shuffle=shuffle, initializable=initializable)
+
   return tf.cast(data_batch, tf.float32), mean, itr
 
 def make_model(proposal_type, model_type, data_dim, mean):
@@ -157,7 +161,7 @@ def run_train():
               staircase=True)
     else:
       lr = FLAGS.learning_rate
-    tf.summary.scalar("learning rate", lr)
+    tf.summary.scalar("learning_rate", lr)
     opt = tf.train.AdamOptimizer(learning_rate=lr)
     grads = opt.compute_gradients(-elbo_avg)
     train_op = opt.apply_gradients(grads, global_step=global_step)
