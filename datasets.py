@@ -72,8 +72,9 @@ def _get_mnist(batch_size, split="train", binarized=None, repeat=True, shuffle=T
     itr = dataset.make_one_shot_iterator()
 
   ims, labels = itr.get_next()
-  ims = tf.reshape(ims, [batch_size, 784])
-  labels = tf.reshape(labels, [batch_size])
+  true_batch_size = tf.shape(ims)[0]
+  ims = tf.reshape(ims, [true_batch_size, 784])
+  labels = tf.reshape(labels, [true_batch_size])
   return ims, labels, mean[tf.newaxis,:], itr
 
 def _load_mnist_images(path):
