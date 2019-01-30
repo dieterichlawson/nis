@@ -5,16 +5,21 @@ tfd = tfp.distributions
 import numpy as np
 import functools
 import tfmpl
-import mnist_data
+import datasets
 import base
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
+tf.app.flags.DEFINE_enum("dataset", "raw_mnist",
+                         ["raw_mnist", "dynamic_mnist", "nine_gaussians"],
+                         "Dataset to use.")
+tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
+                        ["bernoulli_vae","gaussian_vae","gaussian"],
+                        "Proposal type to use.")
+tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
+                        ["bernoulli_vae","gaussian_vae","nis"],
+                        "Model type to use.")
 
-tf.app.flags.DEFINE_enum("algo", "nis_vae_proposal",
-                         ["nis_vae_proposal", "nis_gaussian_proposal", 
-                           "vae_gaussian_prior", "vae_nis_prior"],
-                         "Algorithm to run.")
 tf.app.flags.DEFINE_integer("latent_dim", 50,
                             "Dimension of the latent space of the VAE.")
 tf.app.flags.DEFINE_integer("K", 128,
@@ -23,8 +28,10 @@ tf.app.flags.DEFINE_float("scale_min", 1e-5,
                              "Minimum scale for various distributions.")
 tf.app.flags.DEFINE_float("learning_rate", 3e-4,
                            "The learning rate to use for ADAM or SGD.")
-tf.app.flags.DEFINE_integer("batch_size", 4,
+tf.app.flags.DEFINE_integer("batch_size", 16,
                              "The number of examples per batch.")
+tf.app.flags.DEFINE_string("split", "train",
+                           "The dataset split to train on.")
 tf.app.flags.DEFINE_string("logdir", "/tmp/nis",
                             "Directory for summaries and checkpoints.")
 tf.app.flags.DEFINE_integer("max_steps", int(1e6),
@@ -56,34 +63,77 @@ def sample_summary(model):
   tf.summary.image("samples", ims, max_outputs=FLAGS.batch_size, 
                     collections=["infrequent_summaries"])
 
+def get_dataset(dataset):
+  if dataset == "dynamic_mnist":
+    data_batch, _, mean = datasets.get_dynamic_mnist(
+            batch_size=FLAGS.batch_size, split=FLAGS.split)
+  elif dataset == "raw_mnist":
+    data_batch, _, mean = datasets.get_raw_mnist(
+            batch_size=FLAGS.batch_size, split=FLAGS.split)
+  return tf.cast(data_batch, tf.float32), mean
+
+def make_model(proposal_type, model_type, data_dim, mean):
+  if proposal_type == "bernoulli_vae":
+    proposal = base.BernoulliVAE(
+            latent_dim=FLAGS.latent_dim,
+            data_dim=data_dim,
+            decoder_hidden_sizes=[300, 300],
+            q_hidden_sizes=[300, 300],
+            scale_min=FLAGS.scale_min,
+            dtype=tf.float32)
+  elif proposal_type == "gaussian_vae":
+    proposal = base.GaussianVAE(
+            latent_dim=FLAGS.latent_dim,
+            data_dim=data_dim,
+            decoder_hidden_sizes=[300, 300],
+            q_hidden_sizes=[300, 300],
+            scale_min=FLAGS.scale_min,
+            truncate=False,
+            dtype=tf.float32)
+  elif proposal_type == "gaussian":
+    proposal = tfd.MultivariateNormalDiag(
+            loc=tf.zeros([FLAGS.latent_dim], dtype=tf.float32),
+            scale_diag=tf.ones([FLAGS.latent_dim], dtype=tf.float32))
+
+  if model_type == "bernoulli_vae":
+    model = base.BernoulliVAE(
+            latent_dim=FLAGS.latent_dim,
+            data_dim=data_dim,
+            decoder_hidden_sizes=[300, 300],
+            q_hidden_sizes=[300, 300],
+            scale_min=FLAGS.scale_min,
+            bias_init=mean,
+            prior=proposal,
+            dtype=tf.float32)
+  elif model_type == "gaussian_vae":
+    model = base.GaussianVAE(
+            latent_dim=FLAGS.latent_dim,
+            data_dim=data_dim,
+            decoder_hidden_sizes=[300, 300],
+            q_hidden_sizes=[300, 300],
+            scale_min=FLAGS.scale_min,
+            truncate=False,
+            prior=proposal,
+            dtype=tf.float32)
+  elif model_type == "nis":
+    model = base.NIS(
+            K=FLAGS.K,
+            data_dim=data_dim,
+            energy_hidden_sizes=[20, 20],
+            proposal=proposal,
+            dtype=tf.float32)
+  return model
+
 def main(unused_argv):
-  FLAGS.logdir = os.path.join(FLAGS.logdir, FLAGS.algo)
+  dirname = "_".join([FLAGS.dataset, FLAGS.proposal, "proposal", FLAGS.model, "model"])
+  FLAGS.logdir = os.path.join(FLAGS.logdir, dirname)
   g = tf.Graph()
   with g.as_default():
-
-    data_batch, _, _ = mnist_data.get_mnist(
-            batch_size=FLAGS.batch_size,
-            split="train",
-            binarized="dynamic")
-    data_batch = tf.cast(data_batch, tf.float32)
+    data_batch, mean = get_dataset(FLAGS.dataset)
     data_dim = data_batch.get_shape().as_list()[1]
-    if FLAGS.algo == "nis_vae_proposal":
-      print("Running NIS with VAE proposal")
-      proposal = base.BernoulliVAE(
-              latent_dim=FLAGS.latent_dim,
-              data_dim=data_dim,
-              decoder_hidden_sizes=[300, 300],
-              q_hidden_sizes=[300, 300],
-              scale_min=FLAGS.scale_min,
-              dtype=tf.float32)
-      nis = base.NIS(
-              K=FLAGS.K,
-              data_dim=data_dim,
-              energy_hidden_sizes=[200, 100],
-              proposal=proposal,
-              dtype=tf.float32)
-      elbo = nis.log_prob(data_batch)
-    sample_summary(nis)
+    model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean)
+    elbo = model.log_prob(data_batch)
+    sample_summary(model)
     # Finish constructing the graph
     elbo_avg = tf.reduce_mean(elbo)
     tf.summary.scalar("elbo", elbo_avg)

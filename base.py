@@ -4,7 +4,6 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 import functools
 
-
 def _safe_log(x, eps=1e-8):
   return tf.log(tf.clip_by_value(x, eps, 1.0))
 
@@ -116,6 +115,7 @@ def conditional_normal(
         hidden_activation=tf.math.tanh,
         scale_min=1e-5,
         truncate=False,
+        bias_init=None,
         name=None):
     raw_params = mlp(inputs,
                      hidden_sizes + [2*data_dim],
@@ -124,6 +124,8 @@ def conditional_normal(
                      name=name)
     loc, raw_scale = tf.split(raw_params, 2, axis=-1)
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
+    if bias_init is not None:
+      loc = loc + bias_init
     if truncate:
       loc = tf.math.sigmoid(loc)
       return MultivariateTruncatedNormal(loc=loc, scale=scale, low=0., high=1.)
@@ -135,6 +137,7 @@ def conditional_bernoulli(
         data_dim,
         hidden_sizes,
         hidden_activation=tf.math.tanh,
+        bias_init=None,
         dtype=tf.int32,
         name=None):
     bern_logits = mlp(inputs,
@@ -142,7 +145,9 @@ def conditional_bernoulli(
                       hidden_activation=hidden_activation,
                       final_activation=None,
                       name=name)
-    return GSTBernoulli(temperature=0.7, logits=bern_logits, dtype=dtype)
+    if bias_init is not None:
+      bern_logits = bern_logits + -tf.log(1. / tf.clip_by_value(bias_init, 0.0001, 0.9999) - 1)
+    return MultivariateBernoulli(logits=bern_logits, dtype=dtype)
 
 class VAE(object):
   """Variational autoencoder with continuous latent space."""
@@ -217,6 +222,8 @@ class GaussianVAE(VAE):
                prior=None,
                scale_min=1e-5,
                dtype=tf.float32,
+               truncate=True,
+               bias_init=None,
                name="gaussian_vae"):
     # Make the decoder with a Gaussian distribution
     with tf.name_scope(name):
@@ -225,7 +232,8 @@ class GaussianVAE(VAE):
             data_dim=data_dim,
             hidden_sizes=decoder_hidden_sizes,
             scale_min=scale_min,
-            truncate=True,
+            bias_init=bias_init,
+            truncate=truncate,
             name="decoder")
 
     super().__init__(
@@ -247,6 +255,7 @@ class BernoulliVAE(VAE):
                q_hidden_sizes,
                prior=None,
                scale_min=1e-5,
+               bias_init=None,
                dtype=tf.float32,
                name="gaussian_vae"):
     # Make the decoder with a Gaussian distribution
@@ -255,6 +264,7 @@ class BernoulliVAE(VAE):
             conditional_bernoulli,
             data_dim=data_dim,
             hidden_sizes=decoder_hidden_sizes,
+            bias_init=bias_init,
             dtype=dtype,
             name="decoder")
 
@@ -319,3 +329,6 @@ class NIS(object):
     #[sample_shape, data_dim]
     samples = tf.batch_gather(proposal_samples, tf.expand_dims(indexes, axis=-1)) 
     return samples
+
+
+
