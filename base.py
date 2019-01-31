@@ -158,6 +158,7 @@ class VAE(object):
                q_hidden_sizes,
                prior=None,
                scale_min=1e-5,
+               kl_weight=1.,
                dtype=tf.float32,
                name="vae"):
     """Creates a VAE.
@@ -173,6 +174,7 @@ class VAE(object):
         sample() and log_prob(). If not provided, defaults to Gaussian.
     """
     self.decoder = decoder
+    self.kl_weight = kl_weight
     with tf.name_scope(name):
       self.q = functools.partial(
             conditional_normal,
@@ -203,7 +205,7 @@ class VAE(object):
     p_x_given_z = self.decoder(z)
     log_p_x_given_z = p_x_given_z.log_prob(data)
 
-    elbo = log_p_z + log_p_x_given_z - log_q_z
+    elbo =  log_p_x_given_z + self.kl_weight*(log_p_z - log_q_z)
     return elbo
 
   def sample(self, sample_shape=[1]):
@@ -224,6 +226,7 @@ class GaussianVAE(VAE):
                dtype=tf.float32,
                truncate=True,
                bias_init=None,
+               kl_weight=1.,
                name="gaussian_vae"):
     # Make the decoder with a Gaussian distribution
     with tf.name_scope(name):
@@ -242,6 +245,7 @@ class GaussianVAE(VAE):
             q_hidden_sizes=q_hidden_sizes, 
             prior=prior, 
             scale_min=scale_min, 
+            kl_weight=kl_weight,
             dtype=dtype, 
             name=name)
 
@@ -256,6 +260,7 @@ class BernoulliVAE(VAE):
                prior=None,
                scale_min=1e-5,
                bias_init=None,
+               kl_weight=1.,
                dtype=tf.float32,
                name="gaussian_vae"):
     # Make the decoder with a Gaussian distribution
@@ -269,7 +274,7 @@ class BernoulliVAE(VAE):
             name="decoder")
 
     super().__init__(latent_dim, decoder_fn, q_hidden_sizes, 
-            prior=prior, scale_min=scale_min, dtype=dtype, name=name)
+            prior=prior, scale_min=scale_min, dtype=dtype, kl_weight=kl_weight, name=name)
 
 class NIS(object):
 

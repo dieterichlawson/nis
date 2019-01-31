@@ -31,6 +31,9 @@ tf.app.flags.DEFINE_float("scale_min", 1e-5,
                              "Minimum scale for various distributions.")
 tf.app.flags.DEFINE_float("learning_rate", 3e-4,
                            "The learning rate to use for ADAM or SGD.")
+tf.app.flags.DEFINE_integer("anneal_kl_step", -1,
+                            "Anneal kl weight from 0 to 1 linearly, ending on this step."
+                            "If running eval, annealing is not used.")
 tf.app.flags.DEFINE_boolean("decay_lr", True,
                             "Divide the learning rate by 3 every 1e6 iterations.")
 tf.app.flags.DEFINE_integer("batch_size", 16,
@@ -85,7 +88,16 @@ def get_dataset(dataset, batch_size, split, repeat=True, shuffle=True, initializ
 
   return tf.cast(data_batch, tf.float32), mean, itr
 
-def make_model(proposal_type, model_type, data_dim, mean):
+def make_kl_weight(global_step, anneal_kl_step):
+  if anneal_kl_step > 0:
+    kl_weight = tf.clip_by_value(tf.to_float(global_step)/tf.to_float(anneal_kl_step), 0., 1.)
+  else:
+    kl_weight = 1.
+  tf.summary.scalar("kl_weight", kl_weight)
+  return kl_weight
+
+def make_model(proposal_type, model_type, data_dim, mean, global_step):
+  kl_weight = make_kl_weight(global_step, FLAGS.anneal_kl_step)
   if proposal_type == "bernoulli_vae":
     proposal = base.BernoulliVAE(
             latent_dim=FLAGS.latent_dim,
@@ -93,6 +105,7 @@ def make_model(proposal_type, model_type, data_dim, mean):
             decoder_hidden_sizes=[300, 300],
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
+            kl_weight=kl_weight,
             dtype=tf.float32)
   elif proposal_type == "gaussian_vae":
     proposal = base.GaussianVAE(
@@ -101,6 +114,7 @@ def make_model(proposal_type, model_type, data_dim, mean):
             decoder_hidden_sizes=[300, 300],
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
+            kl_weight=kl_weight,
             truncate=False,
             dtype=tf.float32)
   elif proposal_type == "nis":
@@ -124,6 +138,7 @@ def make_model(proposal_type, model_type, data_dim, mean):
             scale_min=FLAGS.scale_min,
             bias_init=mean,
             prior=proposal,
+            kl_weight=kl_weight,
             dtype=tf.float32)
   elif model_type == "gaussian_vae":
     model = base.GaussianVAE(
@@ -134,6 +149,7 @@ def make_model(proposal_type, model_type, data_dim, mean):
             scale_min=FLAGS.scale_min,
             truncate=False,
             prior=proposal,
+            kl_weight=kl_weight,
             dtype=tf.float32)
   elif model_type == "nis":
     model = base.NIS(
@@ -147,6 +163,7 @@ def make_model(proposal_type, model_type, data_dim, mean):
 def run_train():
   g = tf.Graph()
   with g.as_default():
+    global_step = tf.train.get_or_create_global_step()
     data_batch, mean, _ = get_dataset(
             FLAGS.dataset, 
             batch_size=FLAGS.batch_size,
@@ -154,13 +171,12 @@ def run_train():
             repeat=True, 
             shuffle=True)
     data_dim = data_batch.get_shape().as_list()[1]
-    model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean)
+    model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean, global_step)
     elbo = model.log_prob(data_batch)
     sample_summary(model)
     # Finish constructing the graph
     elbo_avg = tf.reduce_mean(elbo)
     tf.summary.scalar("elbo", elbo_avg)
-    global_step = tf.train.get_or_create_global_step()
     if FLAGS.decay_lr:
       lr = tf.train.exponential_decay(
               FLAGS.learning_rate,
@@ -234,6 +250,8 @@ def wait_for_checkpoint(saver, sess, logdir):
 def run_eval():
   g = tf.Graph()
   with g.as_default():
+    # If running eval, do not anneal the KL.
+    FLAGS.anneal_kl_step = -1
     global_step = tf.train.get_or_create_global_step()
     summary_dir = os.path.join(FLAGS.logdir, FLAGS.split)
     summary_writer = tf.summary.FileWriter(
@@ -258,7 +276,7 @@ def run_eval():
       itrs.append(i)
       batch_sizes.append(tf.shape(data_batch)[0])
       data_dim = data_batch.get_shape().as_list()[1]
-      model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean)
+      model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean, global_step)
       elbos.append(tf.reduce_sum(model.log_prob(data_batch))) 
  
     saver = tf.train.Saver()
