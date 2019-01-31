@@ -141,8 +141,6 @@ def make_model(proposal_type, model_type, data_dim, mean):
   return model
 
 def run_train():
-  dirname = "_".join([FLAGS.dataset, FLAGS.proposal, "proposal", FLAGS.model, "model"])
-  FLAGS.logdir = os.path.join(FLAGS.logdir, dirname)
   g = tf.Graph()
   with g.as_default():
     data_batch, mean, _ = get_dataset(
@@ -188,7 +186,7 @@ def run_train():
         _, cur_step = sess.run([train_op, global_step])
 
 def average_elbo_over_dataset(bound, batch_size, sess):
-  total_ll = np.zeros(1, dtype=np.float64)
+  total_ll = 0.0
   total_n_elems = 0.0
   while True:
     try:
@@ -233,21 +231,32 @@ def run_eval():
   g = tf.Graph()
   with g.as_default():
     global_step = tf.train.get_or_create_global_step()
-    data_batch, mean, itr = get_dataset(
-            FLAGS.dataset, 
-            batch_size=FLAGS.batch_size,
-            split=FLAGS.split,
-            repeat=False, 
-            shuffle=False,
-            initializable=True)
-    batch_size = tf.shape(data_batch)[0]
-    data_dim = data_batch.get_shape().as_list()[1]
-    model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean)
-    elbo = model.log_prob(data_batch)
-    elbo_sum = tf.reduce_sum(elbo)
     summary_dir = os.path.join(FLAGS.logdir, FLAGS.split)
     summary_writer = tf.summary.FileWriter(
         summary_dir, flush_secs=15, max_queue=100)
+
+    splits = FLAGS.split.split(",")
+    for split in splits:
+      assert split in ["train", "test", "valid"]
+
+    itrs = []
+    batch_sizes = []
+    elbos = []
+
+    for split in splits:
+      data_batch, mean, i = get_dataset(
+              FLAGS.dataset, 
+              batch_size=FLAGS.batch_size,
+              split=split,
+              repeat=False, 
+              shuffle=False,
+              initializable=True)
+      itrs.append(i)
+      batch_sizes.append(tf.shape(data_batch)[0])
+      data_dim = data_batch.get_shape().as_list()[1]
+      model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean)
+      elbos.append(tf.reduce_sum(model.log_prob(data_batch))) 
+ 
     saver = tf.train.Saver()
     prev_evaluated_step = -1
     with tf.train.SingularMonitoredSession() as sess:
@@ -259,14 +268,14 @@ def run_eval():
           tf.logging.info("Already evaluated checkpoint at step %d, sleeping" % step)
           time.sleep(60)
           continue
-        sess.run(itr.initializer)
-        average_elbo = average_elbo_over_dataset(elbo_sum, batch_size, sess)
+        for split, elbo, itr, batch_size in zip(splits, elbos, itrs, batch_sizes):
+          sess.run(itr.initializer)
+          avg_elbo = average_elbo_over_dataset(elbo, batch_size, sess)
+          value = tf.Summary.Value(tag="%s_elbo" % split, simple_value=avg_elbo)
+          summary = tf.Summary(value=[value])
+          summary_writer.add_summary(summary, global_step=step)
+          print("%s elbo: %f" % (split, avg_elbo))
         prev_evaluated_step = step
-
-        value = tf.Summary.Value(tag="%s_elbo" % FLAGS.split, simple_value=average_elbo[0])
-        summary = tf.Summary(value=[value])
-        summary_writer.add_summary(summary, global_step=step)
-        print("elbo: %f" % average_elbo[0])
     
 def main(unused_argv):
   if FLAGS.mode == "train":

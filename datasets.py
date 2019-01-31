@@ -50,7 +50,7 @@ def _get_mnist(batch_size, split="train", binarized=None, repeat=True, shuffle=T
   dataset = tf.data.Dataset.from_tensor_slices(np_ims)
 
   if binarized == "dynamic":
-      dataset = dataset.map(lambda im: tfd.Bernoulli(logits=im).sample())
+    dataset = dataset.map(lambda im: tfd.Bernoulli(logits=im).sample())
       
   if repeat:
     dataset = dataset.repeat()
