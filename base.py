@@ -154,6 +154,7 @@ class VAE(object):
 
   def __init__(self, 
                latent_dim,
+               data_dim,
                decoder,
                q_hidden_sizes,
                prior=None,
@@ -173,6 +174,7 @@ class VAE(object):
       prior: A distribution over the clatent space of the VAE. The object must support 
         sample() and log_prob(). If not provided, defaults to Gaussian.
     """
+    self.data_dim = data_dim
     self.decoder = decoder
     self.kl_weight = kl_weight
     with tf.name_scope(name):
@@ -189,23 +191,31 @@ class VAE(object):
     else:
       self.prior = prior
 
-  def log_prob(self, data):
+  def log_prob(self, data, num_samples=1):
+    batch_shape = tf.shape(data)[0:-1]
+    reshaped_data = tf.reshape(data, [tf.math.reduce_prod(batch_shape), self.data_dim])
+    log_prob = self._log_prob(reshaped_data, num_samples=num_samples)
+    log_prob = tf.reshape(log_prob, batch_shape)
+    return log_prob
+
+  def _log_prob(self, data, num_samples=1):
     batch_size = tf.shape(data)[0]
     data_dim = data.get_shape().as_list()[1]
 
     # Construct approximate posterior and sample z.
     q_z = self.q(data)
-    z = q_z.sample()
-    log_q_z = q_z.log_prob(z)
+    z = q_z.sample(sample_shape=[num_samples]) #[num_samples, batch_size, data_dim]
+    log_q_z = q_z.log_prob(z) #[num_samples, batch_size]
 
     # compute the prior prob of z
-    log_p_z = self.prior.log_prob(z)
+    log_p_z = self.prior.log_prob(z) #[num_samples, batch_size]
 
     # Compute the model logprob of the data
     p_x_given_z = self.decoder(z)
-    log_p_x_given_z = p_x_given_z.log_prob(data)
-
-    elbo =  log_p_x_given_z + self.kl_weight*(log_p_z - log_q_z)
+    log_p_x_given_z = p_x_given_z.log_prob(data) #[num_samples, batch_size]
+    
+    elbo = (tf.reduce_logsumexp(log_p_x_given_z + self.kl_weight*(log_p_z - log_q_z), axis=0) -
+            tf.log(tf.to_float(num_samples)))
     return elbo
 
   def sample(self, sample_shape=[1]):
@@ -241,6 +251,7 @@ class GaussianVAE(VAE):
 
     super().__init__(
             latent_dim=latent_dim, 
+            data_dim=data_dim,
             decoder=decoder_fn, 
             q_hidden_sizes=q_hidden_sizes, 
             prior=prior, 
@@ -273,8 +284,16 @@ class BernoulliVAE(VAE):
             dtype=dtype,
             name="decoder")
 
-    super().__init__(latent_dim, decoder_fn, q_hidden_sizes, 
-            prior=prior, scale_min=scale_min, dtype=dtype, kl_weight=kl_weight, name=name)
+    super().__init__(
+            latent_dim=latent_dim, 
+            data_dim=data_dim, 
+            decoder_fn=decoder_fn, 
+            q_hidden_sizes=q_hidden_sizes, 
+            prior=prior, 
+            scale_min=scale_min, 
+            kl_weight=kl_weight,
+            dtype=dtype,
+            name=name)
 
 class NIS(object):
 
@@ -296,6 +315,7 @@ class NIS(object):
         and log_prob() although log_prob only needs to return a lower bound on the true
         log probability. If not supplied, then defaults to Gaussian.
     """
+    self.data_dim = data_dim
     self.K = K
     with tf.name_scope(name):
       self.energy_fn = functools.partial(
@@ -308,20 +328,34 @@ class NIS(object):
                                                  scale_diag=tf.ones([data_dim], dtype=dtype))
     else:
       self.proposal = proposal
-   
-  def log_prob(self, data):
+  
+  def log_prob(self, data, num_samples=1):
+    batch_shape = tf.shape(data)[0:-1]
+    reshaped_data = tf.reshape(data, [tf.math.reduce_prod(batch_shape), self.data_dim])
+    log_prob = self._log_prob(reshaped_data, num_samples=num_samples)
+    log_prob = tf.reshape(log_prob, batch_shape)
+    return log_prob
+
+  def _log_prob(self, data, num_samples=1):
     batch_size = tf.shape(data)[0]
-
-    proposal_samples = self.proposal.sample([batch_size, self.K])  #[batch_size, K, data_size]
-    #proposal_samples = tf.clip_by_value(proposal_samples, 0., 1.)
+    
+    # [num_samples, batch_size, K, data_size]
+    proposal_samples = self.proposal.sample([num_samples, batch_size, self.K]) 
+    # [batch_size]
     log_energy_target = tf.reshape(self.energy_fn(data), [batch_size])
-    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples), [batch_size, self.K])
+    # [num_samples, batch_size, K])
+    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples), 
+            [num_samples, batch_size, self.K])
+    # [num_samples, batch_size]
+    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=-1) 
 
-    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1) # [batch_size]
-
-    #[batch_size]
-    denom = tf.reduce_logsumexp(tf.stack([log_energy_target, proposal_lse], axis=-1), axis=1)
+    # [num_samples, batch_size]
+    tiled_log_energy_target = tf.tile(log_energy_target[tf.newaxis,:], [num_samples, 1]) 
+    # [num_samples, batch_size]
+    denom = tf.reduce_logsumexp(tf.stack([tiled_log_energy_target, proposal_lse], axis=-1), axis=-1)
     denom -= tf.log(tf.to_float(self.K+1))
+    # Only the denominator is affected by num_samples
+    denom = tf.reduce_logsumexp(denom, axis=0) - tf.log(tf.to_float(num_samples))
     proposal_lp = self.proposal.log_prob(data)
     lower_bound = proposal_lp + log_energy_target - denom
     return lower_bound

@@ -27,6 +27,9 @@ tf.app.flags.DEFINE_integer("latent_dim", 50,
                             "Dimension of the latent space of the VAE.")
 tf.app.flags.DEFINE_integer("K", 128,
                             "Number of samples for NIS model.")
+tf.app.flags.DEFINE_string("num_iwae_samples", "1",
+                            "Number of samples used for IWAE bound during eval."
+                            "Can be a comma-separated list of integers.")
 tf.app.flags.DEFINE_float("scale_min", 1e-5,
                              "Minimum scale for various distributions.")
 tf.app.flags.DEFINE_float("learning_rate", 3e-4,
@@ -260,24 +263,35 @@ def run_eval():
     splits = FLAGS.split.split(",")
     for split in splits:
       assert split in ["train", "test", "valid"]
+    
+    num_iwae_samples = [int(x.strip()) for x in FLAGS.num_iwae_samples.split(",")]
+    assert len(num_iwae_samples) == 1 or len(num_iwae_samples) == len(splits)
+    if len(num_iwae_samples) == 1:
+      num_iwae_samples = num_iwae_samples*len(splits)
+
+    bound_names = []
+    for ns in num_iwae_samples:
+      if ns > 1:
+        bound_names.append("iwae_%d" % ns)
+      else:
+        bound_names.append("elbo")
 
     itrs = []
     batch_sizes = []
     elbos = []
-
-    for split in splits:
-      data_batch, mean, i = get_dataset(
+    for split, num_samples in zip(splits, num_iwae_samples):
+      data_batch, mean, itr = get_dataset(
               FLAGS.dataset, 
               batch_size=FLAGS.batch_size,
               split=split,
               repeat=False, 
               shuffle=False,
               initializable=True)
-      itrs.append(i)
+      itrs.append(itr)
       batch_sizes.append(tf.shape(data_batch)[0])
       data_dim = data_batch.get_shape().as_list()[1]
       model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean, global_step)
-      elbos.append(tf.reduce_sum(model.log_prob(data_batch))) 
+      elbos.append(tf.reduce_sum(model.log_prob(data_batch, num_samples=num_samples))) 
  
     saver = tf.train.Saver()
     prev_evaluated_step = -1
@@ -290,13 +304,13 @@ def run_eval():
           tf.logging.info("Already evaluated checkpoint at step %d, sleeping" % step)
           time.sleep(60)
           continue
-        for split, elbo, itr, batch_size in zip(splits, elbos, itrs, batch_sizes):
-          sess.run(itr.initializer)
-          avg_elbo = average_elbo_over_dataset(elbo, batch_size, sess)
-          value = tf.Summary.Value(tag="%s_elbo" % split, simple_value=avg_elbo)
+        for i in range(len(splits)):
+          sess.run(itrs[i].initializer)
+          avg_elbo = average_elbo_over_dataset(elbos[i], batch_sizes[i], sess)
+          value = tf.Summary.Value(tag="%s_%s" % (splits[i], bound_names[i]), simple_value=avg_elbo)
           summary = tf.Summary(value=[value])
           summary_writer.add_summary(summary, global_step=step)
-          print("%s elbo: %f" % (split, avg_elbo))
+          print("%s %s: %f" % (splits[i], bound_names[i], avg_elbo))
         prev_evaluated_step = step
     
 def main(unused_argv):
