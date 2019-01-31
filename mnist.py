@@ -43,6 +43,9 @@ tf.app.flags.DEFINE_integer("max_steps", int(1e6),
                             "The number of steps to run training for.")
 tf.app.flags.DEFINE_integer("summarize_every", int(1e3),
                             "The number of steps between each evaluation.")
+tf.app.flags.DEFINE_integer("num_summary_ims", 8,
+                            "The number of images to sample from the model for evaluation.")
+
 FLAGS = tf.app.flags.FLAGS
 
 def make_log_hooks(global_step, elbo):
@@ -64,9 +67,10 @@ def make_log_hooks(global_step, elbo):
   return hooks
 
 def sample_summary(model):
-  ims = tf.reshape(model.sample(sample_shape=[FLAGS.batch_size]), [FLAGS.batch_size, 28, 28, 1])
-  tf.summary.image("samples", ims, max_outputs=FLAGS.batch_size, 
-                    collections=["infrequent_summaries"])
+  ims = tf.reshape(model.sample(sample_shape=[FLAGS.num_summary_ims]), 
+         [FLAGS.num_summary_ims, 28, 28, 1])
+  tf.summary.image("samples", ims, max_outputs=FLAGS.num_summary_ims, 
+         collections=["infrequent_summaries"])
 
 def get_dataset(dataset, batch_size, split, repeat=True, shuffle=True, initializable=False):
   if dataset == "dynamic_mnist":

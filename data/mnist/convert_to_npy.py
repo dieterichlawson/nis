@@ -25,5 +25,3 @@ np.save("train", train_ims)
 np.save("test", test_ims)
 #np.save("test_lbs", test_lbs)
 np.save("train_mean", np.mean(train_ims, axis=0))
-
-
