@@ -203,7 +203,7 @@ class VAE(object):
     data_dim = data.get_shape().as_list()[1]
 
     # Construct approximate posterior and sample z.
-    q_z = self.q(data)
+    q_z = self.q(data)  # TODO(dieterichl): Use the train mean to center the data.
     z = q_z.sample(sample_shape=[num_samples]) #[num_samples, batch_size, data_dim]
     log_q_z = q_z.log_prob(z) #[num_samples, batch_size]
 
