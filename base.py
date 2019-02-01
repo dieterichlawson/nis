@@ -287,7 +287,7 @@ class BernoulliVAE(VAE):
     super().__init__(
             latent_dim=latent_dim, 
             data_dim=data_dim, 
-            decoder_fn=decoder_fn, 
+            decoder=decoder_fn, 
             q_hidden_sizes=q_hidden_sizes, 
             prior=prior, 
             scale_min=scale_min, 
