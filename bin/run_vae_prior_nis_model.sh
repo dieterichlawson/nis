@@ -15,7 +15,7 @@ module purge
 
 module load cuda-9.0
 
-CUUDA_VISIBLE_DEVICES=0 python3 mnist.py \
+CUDA_VISIBLE_DEVICES=0 python3 mnist.py \
   --logdir=/scratch/jdl404/experiments/static_mnist/vae_prior_nis_model_3 \
   --dataset=static_mnist \
   --proposal=bernoulli_vae \

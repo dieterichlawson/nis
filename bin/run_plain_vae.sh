@@ -15,7 +15,7 @@ module purge
 
 module load cuda-9.0
 
-CUUDA_VISIBLE_DEVICES=0 python3 mnist.py \
+CUDA_VISIBLE_DEVICES=0 python3 mnist.py \
   --logdir=/scratch/jdl404/experiments/static_mnist/plain_vae_3 \
   --dataset=static_mnist \
   --proposal=gaussian \
