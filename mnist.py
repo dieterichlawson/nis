@@ -201,7 +201,7 @@ def run_train():
         is_chief=True,
         hooks=log_hooks,
         checkpoint_dir=FLAGS.logdir,
-        save_checkpoint_secs=60,
+        save_checkpoint_steps=FLAGS.summarize_every*2,
         save_summaries_steps=FLAGS.summarize_every,
         log_step_count_steps=FLAGS.summarize_every) as sess:
       cur_step = -1
@@ -248,7 +248,7 @@ def wait_for_checkpoint(saver, sess, logdir):
   while not restore_checkpoint_if_exists(saver, sess, logdir):
     tf.logging.info("Checkpoint not found in %s, sleeping for 60 seconds."
                     % logdir)
-    time.sleep(60)
+    time.sleep(30)
 
 def run_eval():
   g = tf.Graph()
@@ -302,7 +302,7 @@ def run_eval():
         tf.logging.info("Model restored from step %d." % step)
         if step == prev_evaluated_step:
           tf.logging.info("Already evaluated checkpoint at step %d, sleeping" % step)
-          time.sleep(60)
+          time.sleep(30)
           continue
         for i in range(len(splits)):
           sess.run(itrs[i].initializer)

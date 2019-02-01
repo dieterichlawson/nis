@@ -5,6 +5,7 @@ __pycache__/
 
 *.gz
 *.npy
+slurm_logs
 # C extensions
 *.so
 
