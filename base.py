@@ -338,25 +338,28 @@ class NIS(object):
 
   def _log_prob(self, data, num_samples=1):
     batch_size = tf.shape(data)[0]
-    
-    # [num_samples, batch_size, K, data_size]
-    proposal_samples = self.proposal.sample([num_samples, batch_size, self.K]) 
+
+    # [K, data_size]
+    proposal_samples = self.proposal.sample([self.K])
     # [batch_size]
     log_energy_target = tf.reshape(self.energy_fn(data), [batch_size])
-    # [num_samples, batch_size, K])
-    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples), 
-            [num_samples, batch_size, self.K])
-    # [num_samples, batch_size]
-    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=-1) 
+    # [K])
+    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples),
+            [self.K])
+    # [1]
+    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, keepdims=True)
+    # [batch_size]
+    tiled_proposal_lse = tf.tile(proposal_lse, [batch_size])
 
-    # [num_samples, batch_size]
-    tiled_log_energy_target = tf.tile(log_energy_target[tf.newaxis,:], [num_samples, 1]) 
-    # [num_samples, batch_size]
-    denom = tf.reduce_logsumexp(tf.stack([tiled_log_energy_target, proposal_lse], axis=-1), axis=-1)
+    # [batch_size]
+    denom = tf.reduce_logsumexp(tf.stack([log_energy_target, tiled_proposal_lse], axis=-1), axis=-1)
     denom -= tf.log(tf.to_float(self.K+1))
-    # Only the denominator is affected by num_samples
-    denom = tf.reduce_logsumexp(denom, axis=0) - tf.log(tf.to_float(num_samples))
-    proposal_lp = self.proposal.log_prob(data)
+
+    try:
+      # Try giving the proposal lower bound extra compute if it can use it.
+      proposal_lp = self.proposal.log_prob(data, num_samples=num_samples)
+    except TypeError:
+      proposal_lp = self.proposal.log_prob(data)
     lower_bound = proposal_lp + log_energy_target - denom
     return lower_bound
 
