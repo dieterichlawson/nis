@@ -310,7 +310,7 @@ def run_eval():
           value = tf.Summary.Value(tag="%s_%s" % (splits[i], bound_names[i]), simple_value=avg_elbo)
           summary = tf.Summary(value=[value])
           summary_writer.add_summary(summary, global_step=step)
-          print("%s %s: %f" % (splits[i], bound_names[i], avg_elbo))
+          tf.logging.info("Step %d, %s %s: %f" % (step, splits[i], bound_names[i], avg_elbo))
         prev_evaluated_step = step
     
 def main(unused_argv):
