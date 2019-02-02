@@ -207,8 +207,12 @@ class VAE(object):
     z = q_z.sample(sample_shape=[num_samples]) #[num_samples, batch_size, data_dim]
     log_q_z = q_z.log_prob(z) #[num_samples, batch_size]
 
-    # compute the prior prob of z
-    log_p_z = self.prior.log_prob(z) #[num_samples, batch_size]
+    # compute the prior prob of z, #[num_samples, batch_size]
+    # Try giving the proposal lower bound extra compute if it can use it.
+    try:
+      log_p_z = self.prior.log_prob(z, num_samples=num_samples)
+    except TypeError:
+      log_p_z = self.prior.log_prob(z)
 
     # Compute the model logprob of the data
     p_x_given_z = self.decoder(z)
