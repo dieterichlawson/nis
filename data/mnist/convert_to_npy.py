@@ -15,13 +15,16 @@ def load_mnist_images(path):
 #    integer_labels = np.frombuffer(f.read(), 'B', offset=8)
 #  return integer_labels
 
-train_ims = load_mnist_images("train-ims.gz")
-#train_lbs = load_mnist_labels("train-lbs.gz")
+all_train_ims = load_mnist_images("train-ims.gz")
+train_ims = all_train_ims[:50000,:]
+valid_ims = all_train_ims[50000:,:]
 test_ims = load_mnist_images("test-ims.gz")
+#all_train_lbs = load_mnist_labels("train-lbs.gz")
 #test_lbs = load_mnist_labels("test-lbs.gz")
 
 np.save("train", train_ims)
-#np.save("train_lbs", train_lbs)
+np.save("valid", valid_ims)
 np.save("test", test_ims)
-#np.save("test_lbs", test_lbs)
 np.save("train_mean", np.mean(train_ims, axis=0))
+#np.save("train_lbs", train_lbs)
+#np.save("test_lbs", test_lbs)

@@ -280,8 +280,6 @@ def run_eval():
     batch_sizes = []
     elbos = []
     for split, num_samples in zip(splits, num_iwae_samples):
-      # TODO(dieterichl): Ensure that only the train data mean gets passed to
-      # the model.
       data_batch, mean, itr = get_dataset(
               FLAGS.dataset, 
               batch_size=FLAGS.batch_size,

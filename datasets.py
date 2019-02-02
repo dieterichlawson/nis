@@ -46,11 +46,12 @@ def _get_mnist(batch_size, split="train", binarized=None, repeat=True, shuffle=T
 
   path = os.path.join(data_dir, split + ".npy")
   np_ims = np.load(path)
+  # Always load the train mean, no matter what split.
   mean = np.load(os.path.join(data_dir, "train_mean.npy")).astype(np.float32)
   dataset = tf.data.Dataset.from_tensor_slices(np_ims)
 
   if binarized == "dynamic":
-    dataset = dataset.map(lambda im: tfd.Bernoulli(logits=im).sample())
+    dataset = dataset.map(lambda im: tfd.Bernoulli(probs=im).sample())
       
   if repeat:
     dataset = dataset.repeat()
