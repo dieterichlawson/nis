@@ -165,6 +165,7 @@ class VAE(object):
                decoder,
                q_hidden_sizes,
                prior=None,
+               data_mean=None,
                scale_min=1e-5,
                kl_weight=1.,
                dtype=tf.float32,
@@ -182,6 +183,10 @@ class VAE(object):
         sample() and log_prob(). If not provided, defaults to Gaussian.
     """
     self.data_dim = data_dim
+    if data_mean is not None:
+      self.data_mean = data_mean
+    else:
+      self.data_mean = tf.zeros((), dtype=dtype)
     self.decoder = decoder
     self.kl_weight = kl_weight
     with tf.name_scope(name):
@@ -206,11 +211,12 @@ class VAE(object):
     return log_prob
 
   def _log_prob(self, data, num_samples=1):
+    mean_centered_data = data - self.data_mean
     batch_size = tf.shape(data)[0]
     data_dim = data.get_shape().as_list()[1]
 
     # Construct approximate posterior and sample z.
-    q_z = self.q(data)  # TODO(dieterichl): Use the train mean to center the data.
+    q_z = self.q(mean_centered_data) 
     z = q_z.sample(sample_shape=[num_samples]) #[num_samples, batch_size, data_dim]
     log_q_z = q_z.log_prob(z) #[num_samples, batch_size]
 
@@ -243,10 +249,10 @@ class GaussianVAE(VAE):
                decoder_hidden_sizes,
                q_hidden_sizes,
                prior=None,
+               data_mean=None,
                scale_min=1e-5,
                dtype=tf.float32,
                truncate=True,
-               bias_init=None,
                kl_weight=1.,
                name="gaussian_vae"):
     # Make the decoder with a Gaussian distribution
@@ -256,7 +262,7 @@ class GaussianVAE(VAE):
             data_dim=data_dim,
             hidden_sizes=decoder_hidden_sizes,
             scale_min=scale_min,
-            bias_init=bias_init,
+            bias_init=data_mean,
             truncate=truncate,
             name="decoder")
 
@@ -265,10 +271,11 @@ class GaussianVAE(VAE):
             data_dim=data_dim,
             decoder=decoder_fn, 
             q_hidden_sizes=q_hidden_sizes, 
-            prior=prior, 
-            scale_min=scale_min, 
+            data_mean=data_mean,
+            prior=prior,
+            scale_min=scale_min,
             kl_weight=kl_weight,
-            dtype=dtype, 
+            dtype=dtype,
             name=name)
 
 class BernoulliVAE(VAE):
@@ -280,8 +287,8 @@ class BernoulliVAE(VAE):
                decoder_hidden_sizes,
                q_hidden_sizes,
                prior=None,
+               data_mean=None,
                scale_min=1e-5,
-               bias_init=None,
                kl_weight=1.,
                reparameterize_sample=False,
                temperature=None,
@@ -293,7 +300,7 @@ class BernoulliVAE(VAE):
             conditional_bernoulli,
             data_dim=data_dim,
             hidden_sizes=decoder_hidden_sizes,
-            bias_init=bias_init,
+            bias_init=data_mean,
             dtype=dtype,
             reparameterize_gst=reparameterize_sample,
             temperature=temperature,
@@ -304,6 +311,7 @@ class BernoulliVAE(VAE):
             data_dim=data_dim, 
             decoder=decoder_fn, 
             q_hidden_sizes=q_hidden_sizes, 
+            data_mean=data_mean,
             prior=prior, 
             scale_min=scale_min, 
             kl_weight=kl_weight,
@@ -314,9 +322,10 @@ class NIS(object):
 
   def __init__(self,
                K, 
-               data_dim, 
+               data_dim,
                energy_hidden_sizes, 
                proposal=None,
+               data_mean=None,
                dtype=tf.float32,
                name="nis"):
     """Creates a NIS model.
@@ -331,6 +340,10 @@ class NIS(object):
         log probability. If not supplied, then defaults to Gaussian.
     """
     self.data_dim = data_dim
+    if data_mean is not None:
+      self.data_mean = data_mean
+    else:
+      self.data_mean = tf.zeros((), dtype=dtype)
     self.K = K
     with tf.name_scope(name):
       self.energy_fn = functools.partial(
@@ -357,17 +370,17 @@ class NIS(object):
     # [K, data_size]
     proposal_samples = self.proposal.sample([self.K])
     # [batch_size]
-    log_energy_target = tf.reshape(self.energy_fn(data), [batch_size])
+    log_energy_target = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
     # [K])
-    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples),
-            [self.K])
+    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples - self.data_mean), [self.K])
     # [1]
     proposal_lse = tf.reduce_logsumexp(log_energy_proposal, keepdims=True)
     # [batch_size]
     tiled_proposal_lse = tf.tile(proposal_lse, [batch_size])
 
     # [batch_size]
-    denom = tf.reduce_logsumexp(tf.stack([log_energy_target, tiled_proposal_lse], axis=-1), axis=-1)
+    denom = tf.reduce_logsumexp(
+            tf.stack([log_energy_target, tiled_proposal_lse], axis=-1), axis=-1)
     denom -= tf.log(tf.to_float(self.K+1))
 
     try:
@@ -381,7 +394,8 @@ class NIS(object):
   def sample(self, sample_shape=[1]):
     shape = sample_shape + [self.K]
     proposal_samples = self.proposal.sample(shape) #[sample_shape, K, data_dim]
-    log_energy = tf.reshape(self.energy_fn(proposal_samples), shape) #[sample_shape, K]
+    log_energy = tf.reshape(
+            self.energy_fn(proposal_samples - self.data_mean), shape) #[sample_shape, K]
     indexes = tfd.Categorical(logits=log_energy).sample() #[sample_shape]
     #[sample_shape, data_dim]
     samples = tf.batch_gather(proposal_samples, tf.expand_dims(indexes, axis=-1)) 

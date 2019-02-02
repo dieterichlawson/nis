@@ -105,10 +105,13 @@ def make_kl_weight(global_step, anneal_kl_step):
 
 def make_model(proposal_type, model_type, data_dim, mean, global_step):
   kl_weight = make_kl_weight(global_step, FLAGS.anneal_kl_step)
+  # Bernoulli VAE proposal gets that data mean because it is proposing images.
+  # Other proposals don't because they are proposing latent states.
   if proposal_type == "bernoulli_vae":
     proposal = base.BernoulliVAE(
             latent_dim=FLAGS.latent_dim,
             data_dim=data_dim,
+            data_mean=mean,
             decoder_hidden_sizes=[300, 300],
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
@@ -141,10 +144,10 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     model = base.BernoulliVAE(
             latent_dim=FLAGS.latent_dim,
             data_dim=data_dim,
+            data_mean=mean,
             decoder_hidden_sizes=[300, 300],
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
-            bias_init=mean,
             prior=proposal,
             kl_weight=kl_weight,
             reparameterize_sample=False,
@@ -153,6 +156,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     model = base.GaussianVAE(
             latent_dim=FLAGS.latent_dim,
             data_dim=data_dim,
+            data_mean=mean,
             decoder_hidden_sizes=[300, 300],
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
@@ -164,6 +168,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     model = base.NIS(
             K=FLAGS.K,
             data_dim=data_dim,
+            data_mean=mean,
             energy_hidden_sizes=[100, 100],
             proposal=proposal,
             dtype=tf.float32)
