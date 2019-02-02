@@ -139,6 +139,8 @@ def conditional_bernoulli(
         hidden_activation=tf.math.tanh,
         bias_init=None,
         dtype=tf.int32,
+        reparameterize_gst=False,
+        temperature=None,
         name=None):
     bern_logits = mlp(inputs,
                       hidden_sizes + [data_dim],
@@ -147,7 +149,12 @@ def conditional_bernoulli(
                       name=name)
     if bias_init is not None:
       bern_logits = bern_logits + -tf.log(1. / tf.clip_by_value(bias_init, 0.0001, 0.9999) - 1)
-    return MultivariateBernoulli(logits=bern_logits, dtype=dtype)
+
+    if reparameterize_gst:
+      assert temperature is not None
+      return GSTBernoulli(temperature, logits=bern_logits, dtype=dtype)
+    else:
+      return MultivariateBernoulli(logits=bern_logits, dtype=dtype)
 
 class VAE(object):
   """Variational autoencoder with continuous latent space."""
@@ -276,6 +283,8 @@ class BernoulliVAE(VAE):
                scale_min=1e-5,
                bias_init=None,
                kl_weight=1.,
+               reparameterize_sample=False,
+               temperature=None,
                dtype=tf.float32,
                name="gaussian_vae"):
     # Make the decoder with a Gaussian distribution
@@ -286,6 +295,8 @@ class BernoulliVAE(VAE):
             hidden_sizes=decoder_hidden_sizes,
             bias_init=bias_init,
             dtype=dtype,
+            reparameterize_gst=reparameterize_sample,
+            temperature=temperature,
             name="decoder")
 
     super().__init__(

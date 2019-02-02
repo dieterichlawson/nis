@@ -22,7 +22,11 @@ tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","nis"],
                         "Model type to use.")
-
+tf.app.flags.DEFINE_boolean("reparam_vae_prior", True,
+                            "If true, reparameterize the sample of a Bernoulli VAE prior"
+                            "with Gumbel straight-through.")
+tf.app.flags.DEFINE_float("gst_temperature", 0.7,
+                          "Default temperature for the Gumbel straight-through relaxation.")
 tf.app.flags.DEFINE_integer("latent_dim", 50,
                             "Dimension of the latent space of the VAE.")
 tf.app.flags.DEFINE_integer("K", 128,
@@ -109,6 +113,8 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
             kl_weight=kl_weight,
+            reparameterize_sample=FLAGS.reparam_vae_prior,
+            temperature=FLAGS.gst_temperature,
             dtype=tf.float32)
   elif proposal_type == "gaussian_vae":
     proposal = base.GaussianVAE(
@@ -126,7 +132,6 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             data_dim=FLAGS.latent_dim,
             energy_hidden_sizes=[100, 100],
             dtype=tf.float32)
-
   elif proposal_type == "gaussian":
     proposal = tfd.MultivariateNormalDiag(
             loc=tf.zeros([FLAGS.latent_dim], dtype=tf.float32),
@@ -142,6 +147,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             bias_init=mean,
             prior=proposal,
             kl_weight=kl_weight,
+            reparameterize_sample=False,
             dtype=tf.float32)
   elif model_type == "gaussian_vae":
     model = base.GaussianVAE(
