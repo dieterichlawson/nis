@@ -11,11 +11,11 @@
 #SBATCH --nodes=1
 #SBATCH --mem=6000
 
-if [ command -v module ]
-then
-  module purge
-  module load cuda-9.0
-fi
+trap "exit" INT TERM
+trap "kill 0" EXIT
+
+#module purge
+#module load cuda-9.0
 
 DATASET=static_mnist
 PROPOSAL=bernoulli_vae

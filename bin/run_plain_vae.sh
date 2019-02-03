@@ -11,18 +11,19 @@
 #SBATCH --nodes=1
 #SBATCH --mem=6000
 
-if [ command -v module ]
-then
-  module purge
-  module load cuda-9.0
-fi
+trap "exit" INT TERM
+trap "kill 0" EXIT
+    
+#module purge
+#module load cuda-9.0
 
 DATASET=static_mnist
 PROPOSAL=gaussian
 MODEL=bernoulli_vae
 LATENT_DIM=50
 NAME=${PROPOSAL}_proposal_${MODEL}_model_3
-LOGDIR=/tmp/experiments/$DATASET/$NAME
+#LOGDIR=/tmp/experiments/$DATASET/$NAME
+LOGDIR=/root/berg_results/$DATASET/$NAME
 
 CUDA_VISIBLE_DEVICES=0 python3 mnist.py \
   --logdir=$LOGDIR  \
@@ -39,7 +40,7 @@ CUDA_VISIBLE_DEVICES=0 python3 mnist.py \
   --mode=train &
 
 CUDA_VISIBLE_DEVICES=1 python3 mnist.py \
-  --logdir=$LOGIDR \
+  --logdir=$LOGDIR \
   --dataset=$DATASET \
   --proposal=$PROPOSAL \
   --model=$MODEL \
