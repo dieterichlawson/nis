@@ -267,7 +267,7 @@ def run_eval():
     # If running eval, do not anneal the KL.
     FLAGS.anneal_kl_step = -1
     global_step = tf.train.get_or_create_global_step()
-    summary_dir = os.path.join(FLAGS.logdir, FLAGS.split)
+    summary_dir = os.path.join(FLAGS.logdir, "eval")
     summary_writer = tf.summary.FileWriter(
         summary_dir, flush_secs=15, max_queue=100)
 
