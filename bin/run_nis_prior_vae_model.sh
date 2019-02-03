@@ -11,32 +11,43 @@
 #SBATCH --nodes=1
 #SBATCH --mem=6000
 
-module purge
+if [command -v module ]
+then
+  module purge
+  module load cuda-9.0
+fi
 
-module load cuda-9.0
+
+DATASET=static_mnist
+PROPOSAL=nis
+MODEL=bernoulli_vae
+LATENT_DIM=50
+NAME=${PROPOSAL}_proposal_${MODEL}_model_3
+LOGDIR=/tmp/experiments/$DATASET/$NAME
 
 CUDA_VISIBLE_DEVICES=0 python3 mnist.py \
-  --logdir=/scratch/jdl404/experiments/static_mnist/nis_prior_vae_model_3 \
-  --dataset=static_mnist \
-  --proposal=nis \
-  --model=bernoulli_vae \
+  --logdir=$LOGDIR \
+  --dataset=$DATASET \
+  --proposal=$PROPOSAL \
+  --model=$MODEL \
+  --mode=train \
   --learning_rate=3e-4 \
   --decay_lr \
   --anneal_kl_step=100000 \
-  --latent_dim=50 \
+  --latent_dim=$LATENT_DIM \
   --batch_size=128 \
   --max_steps=10000000 \
   --mode=train &
 
 CUDA_VISIBLE_DEVICES=1 python3 mnist.py \
-  --logdir=/scratch/jdl404/experiments/static_mnist/nis_prior_vae_model_3 \
-  --dataset=static_mnist \
-  --proposal=nis \
-  --model=bernoulli_vae \
-  --latent_dim=50 \
+  --logdir=$LOGIDR \
+  --dataset=$DATASET \
+  --proposal=$PROPOSAL \
+  --model=$MODEL \
+  --mode=eval \
+  --latent_dim=$LATENT_DIM \
   --batch_size=32 \
   --max_steps=10000000 \
-  --mode=eval \
   --split=train,valid,test \
   --num_iwae_samples=1,1,1000 &
 
