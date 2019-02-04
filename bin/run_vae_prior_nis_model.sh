@@ -23,6 +23,7 @@ MODEL=nis
 LATENT_DIM=50
 NAME=${PROPOSAL}_proposal_${MODEL}_model
 LOGDIR=/tmp/experiments/$DATASET/$NAME
+TEXT_OUTDIR=logdir/$NAME
 
 CUDA_VISIBLE_DEVICES=0 python3 mnist.py \
   --logdir=$LOGDIR  \
@@ -36,7 +37,7 @@ CUDA_VISIBLE_DEVICES=0 python3 mnist.py \
   --latent_dim=$LATENT_DIM \
   --reparam_vae_prior=false \
   --batch_size=128 \
-  --max_steps=10000000 &
+  --max_steps=10000000 >> ${TEXT_OUTDIR}_train.out 2>&1 &
 
 CUDA_VISIBLE_DEVICES=1 python3 mnist.py \
   --logdir=$LOGDIR \
@@ -48,7 +49,7 @@ CUDA_VISIBLE_DEVICES=1 python3 mnist.py \
   --batch_size=6 \
   --max_steps=10000000 \
   --split=train,valid,test \
-  --num_iwae_samples=1,1,1000 &
+  --num_iwae_samples=1,1,1000 >> ${TEXT_OUTDIR}_eval.out 2>&1 &
 
 wait
 
