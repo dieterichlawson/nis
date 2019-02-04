@@ -192,12 +192,16 @@ def run_train():
     elbo_avg = tf.reduce_mean(elbo)
     tf.summary.scalar("elbo", elbo_avg)
     if FLAGS.decay_lr:
-      lr = tf.train.exponential_decay(
-              FLAGS.learning_rate,
+      #lr = tf.train.exponential_decay(
+      #        FLAGS.learning_rate,
+      #        global_step,
+      #        decay_steps=int(1e6),
+      #        decay_rate=1./3.,
+      #        staircase=True)
+      lr = tf.train.piecewise_constant(
               global_step,
-              decay_steps=int(1e6),
-              decay_rate=1./3.,
-              staircase=True)
+              [int(1e6)],
+              [FLAGS.learning_rate, FLAGS.learning_rate/3.])
     else:
       lr = FLAGS.learning_rate
     tf.summary.scalar("learning_rate", lr)
