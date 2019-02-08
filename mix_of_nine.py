@@ -4,10 +4,11 @@ tfd = tfp.distributions
 import numpy as np
 import functools
 import tfmpl
+import base
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
-tf.app.flags.DEFINE_enum("algo", "lars", ["lars","nis"],
+tf.app.flags.DEFINE_enum("algo", "lars", ["lars","nis", "his"],
                          "The algorithm to run.")
 tf.app.flags.DEFINE_float("learning_rate", 1e-4,
                            "The learning rate to use for ADAM or SGD.")
@@ -215,6 +216,39 @@ def make_nis_graph(batch_size=16,
   train_op = opt.apply_gradients(grads, global_step=global_step)
   return lower_bound, train_op, global_step
 
+
+def his_density_image_summary(his_model):
+  x = tf.range(-2, 2, delta=0.1)
+  X, Y = tf.meshgrid(x, x)
+
+  Z = tf.stack([X,Y], axis=-1)
+
+  unnorm_density = tf.exp(his_model.log_prob(Z, num_samples=100))
+
+  plot = plot_density(unnorm_density)
+  tf.summary.image("density", plot, max_outputs=1, collections=["infrequent_summaries"])
+
+def make_his_graph(batch_size=16,
+                   T=100,
+                   lr=1e-4,
+                   mlp_layers=[10,10],
+                   dtype=tf.float32):
+  target_dist = mixture_of_nine()
+  data = target_dist.sample(batch_size)
+  model = base.HIS(T,
+                   data_dim=2,
+                   energy_hidden_sizes=mlp_layers,
+                   q_hidden_sizes=mlp_layers)
+  elbo = model.log_prob(data)
+  elbo = tf.reduce_mean(elbo)
+  tf.summary.scalar("lower_bound", elbo)
+  his_density_image_summary(model)
+  global_step = tf.train.get_or_create_global_step()
+  opt = tf.train.AdamOptimizer(learning_rate=lr)
+  grads = opt.compute_gradients(-elbo)
+  train_op = opt.apply_gradients(grads, global_step=global_step)
+  return elbo, train_op, global_step
+
 def make_log_hooks(global_step, loss):
   hooks = []
   def summ_formatter(d):
@@ -226,7 +260,7 @@ def make_log_hooks(global_step, loss):
   hooks.append(loss_hook)
   if len(tf.get_collection("infrequent_summaries")) > 0:
     infrequent_summary_hook = tf.train.SummarySaverHook(
-        save_steps=10000,
+        save_steps=500,
         output_dir=FLAGS.logdir,
         summary_op=tf.summary.merge_all(key="infrequent_summaries")
     )
@@ -250,7 +284,15 @@ def main(unused_argv):
         lr=FLAGS.learning_rate,
         mlp_layers=[20,20],
         dtype=tf.float32)
-        
+    elif FLAGS.algo == "his":
+      print("Running HIS")
+      loss, train_op, global_step = make_his_graph(
+        batch_size=FLAGS.batch_size,
+        T=50,
+        lr=FLAGS.learning_rate,
+        mlp_layers=[20,20],
+        dtype=tf.float32)
+
     log_hooks = make_log_hooks(global_step, loss) 
     with tf.train.MonitoredTrainingSession(
         master="",
