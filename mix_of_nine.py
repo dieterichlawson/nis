@@ -217,6 +217,19 @@ def make_nis_graph(batch_size=16,
   return lower_bound, train_op, global_step
 
 
+@tfmpl.figure_tensor
+def plot_his_points(xs):
+  num_samples = xs.shape[1]
+  fig = tfmpl.create_figure(figsize=(3, num_samples*3))
+  T = xs.shape[0]
+  subplot_num = num_samples*100 + 10
+  for i in range(num_samples):
+    ax = fig.add_subplot(subplot_num + i + 1)
+    ax.set_xlim(-2., 2.)
+    ax.set_ylim(-2., 2.)
+    ax.scatter(xs[:,i,0], xs[:,i,1], c=np.arange(T), cmap='plasma')
+  return fig
+
 def his_density_image_summary(his_model):
   x = tf.range(-2, 2, delta=0.1)
   X, Y = tf.meshgrid(x, x)
@@ -224,9 +237,22 @@ def his_density_image_summary(his_model):
   Z = tf.stack([X,Y], axis=-1)
 
   unnorm_density = tf.exp(his_model.log_prob(Z, num_samples=100))
-
+  log_energy_fn = tf.squeeze(his_model.energy_fn(Z))
+  energy_fn = tf.exp(log_energy_fn)
   plot = plot_density(unnorm_density)
+
+  _, _, xs  = his_model.sample(sample_shape=[4])
+  point_plot = plot_his_points(xs)
+  tf.summary.image("points", point_plot, max_outputs=1, collections=["infrequent_summaries"])
   tf.summary.image("density", plot, max_outputs=1, collections=["infrequent_summaries"])
+  tf.summary.image("energy_fn",
+          plot_density(energy_fn),
+          max_outputs=1,
+          collections=["infrequent_summaries"])
+  tf.summary.image("log_energy_fn",
+          plot_density(log_energy_fn),
+          max_outputs=1,
+          collections=["infrequent_summaries"])
 
 def make_his_graph(batch_size=16,
                    T=100,
@@ -288,9 +314,9 @@ def main(unused_argv):
       print("Running HIS")
       loss, train_op, global_step = make_his_graph(
         batch_size=FLAGS.batch_size,
-        T=50,
+        T=100,
         lr=FLAGS.learning_rate,
-        mlp_layers=[20,20],
+        mlp_layers=[40,40],
         dtype=tf.float32)
 
     log_hooks = make_log_hooks(global_step, loss) 

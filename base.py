@@ -418,8 +418,8 @@ def _expand_to_ta(x, length):
                       infer_shape=True).unstack(expanded)
   return ta
 
-def _hamiltonian_dynamics(x_0, momentum_0, energy_fn, T, step_size, temp):
-  temperature_ta = _expand_to_ta(temp, T)
+def _hamiltonian_dynamics(x_0, momentum_0, energy_fn, T, step_size, temps):
+  temperature_ta = _expand_to_ta(temps, T)
   t_0 = tf.constant(0, tf.int32, name="t_0")
   xs = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
                       clear_after_read=False,infer_shape=True)
@@ -481,7 +481,7 @@ class HIS(object):
                proposal=None,
                data_mean=None,
                init_alpha=0.9995,
-               init_step_size=0.001,
+               init_step_size=0.03,
                scale_min=1e-5,
                dtype=tf.float32,
                name="his"):
@@ -495,7 +495,7 @@ class HIS(object):
       self.energy_fn = functools.partial(
             mlp,
             layer_sizes=energy_hidden_sizes + [1],
-            final_activation=tf.math.softplus,
+            final_activation=None,
             name="energy_fn_mlp")
       self.q = functools.partial(
             conditional_normal,
@@ -506,13 +506,13 @@ class HIS(object):
             truncate=False,
             name="decoder")
 
-      init_alpha =  np.log(np.exp(init_alpha) - 1.)
+      init_alpha = -np.log(1./init_alpha - 1.)
       self.raw_alphas = tf.get_variable(name="raw_alpha",
                                        shape=[T],
                                        dtype=tf.float32,
                                        initializer=tf.constant_initializer(init_alpha),
                                        trainable=True)
-      self.alphas = tf.math.softplus(self.raw_alphas)
+      self.alphas = tf.math.sigmoid(self.raw_alphas)
       for i in range(T):
         tf.summary.scalar("alpha_%d" % i, self.alphas[i])
       init_step_size = np.log(np.exp(init_step_size) - 1.)
@@ -549,5 +549,9 @@ class HIS(object):
     return tf.reduce_logsumexp(elbo, axis=0) - tf.log(tf.to_float(num_samples))
 
   def sample(self, sample_shape=[1]):
-    pass
+    x_and_rho = self.proposal.sample(sample_shape=sample_shape)
+    x_0, rho_0 = tf.split(x_and_rho, 2, axis=-1)
+    x_T, rho_T, xs = _hamiltonian_dynamics(x_0, rho_0, self.energy_fn, self.T, 
+                                          step_size=self.step_size, temps=self.alphas)
+    return x_T, rho_T, xs
 
