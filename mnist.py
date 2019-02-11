@@ -17,10 +17,10 @@ tf.app.flags.DEFINE_enum("dataset", "raw_mnist",
                          ["raw_mnist", "dynamic_mnist", "static_mnist"],
                          "Dataset to use.")
 tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
-                        ["bernoulli_vae","gaussian_vae","gaussian", "nis"],
+                        ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis"],
                         "Proposal type to use.")
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
-                        ["bernoulli_vae","gaussian_vae","nis"],
+                        ["bernoulli_vae","gaussian_vae","nis", "bnis"],
                         "Model type to use.")
 tf.app.flags.DEFINE_boolean("reparam_vae_prior", True,
                             "If true, reparameterize the sample of a Bernoulli VAE prior"
@@ -77,14 +77,14 @@ def make_log_hooks(global_step, elbo):
   return hooks
 
 def sample_summary(model):
-  ims = tf.reshape(model.sample(sample_shape=[FLAGS.num_summary_ims]), 
+  ims = tf.reshape(model.sample(sample_shape=[FLAGS.num_summary_ims]),
          [FLAGS.num_summary_ims, 28, 28, 1])
-  tf.summary.image("samples", ims, max_outputs=FLAGS.num_summary_ims, 
+  tf.summary.image("samples", ims, max_outputs=FLAGS.num_summary_ims,
          collections=["infrequent_summaries"])
 
 def get_dataset(dataset, batch_size, split, repeat=True, shuffle=True, initializable=False):
   if dataset == "dynamic_mnist":
-    data_batch, mean, itr = datasets.get_dynamic_mnist(batch_size=batch_size, split=split, 
+    data_batch, mean, itr = datasets.get_dynamic_mnist(batch_size=batch_size, split=split,
             repeat=repeat, shuffle=shuffle, initializable=initializable)
   elif dataset == "raw_mnist":
     data_batch, mean, itr = datasets.get_raw_mnist(batch_size=batch_size, split=split,
@@ -139,6 +139,15 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     proposal = tfd.MultivariateNormalDiag(
             loc=tf.zeros([FLAGS.latent_dim], dtype=tf.float32),
             scale_diag=tf.ones([FLAGS.latent_dim], dtype=tf.float32))
+  elif proposal_type == "bnis":
+    proposal = base.BernoulliNIS(
+            K=FLAGS.K,
+            data_dim=FLAGS.latent_dim,
+            energy_hidden_sizes=[100, 100],
+            q_hidden_sizes=[300, 300],
+            temperature=FLAGS.gst_temperature,
+            dtype=tf.float32)
+
 
   if model_type == "bernoulli_vae":
     model = base.BernoulliVAE(
@@ -172,6 +181,17 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             energy_hidden_sizes=[100, 100],
             proposal=proposal,
             dtype=tf.float32)
+  elif model_type == "bnis":
+    model = base.BernoulliNIS(
+            K=FLAGS.K,
+            data_dim=data_dim,
+            data_mean=mean,
+            energy_hidden_sizes=[100, 100],
+            q_hidden_sizes=[300, 300],
+            proposal=proposal,
+            temperature=FLAGS.gst_temperature,
+            dtype=tf.float32)
+
   return model
 
 def run_train():
@@ -179,10 +199,10 @@ def run_train():
   with g.as_default():
     global_step = tf.train.get_or_create_global_step()
     data_batch, mean, _ = get_dataset(
-            FLAGS.dataset, 
+            FLAGS.dataset,
             batch_size=FLAGS.batch_size,
             split=FLAGS.split,
-            repeat=True, 
+            repeat=True,
             shuffle=True)
     data_dim = data_batch.get_shape().as_list()[1]
     model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean, global_step)
@@ -209,7 +229,7 @@ def run_train():
     grads = opt.compute_gradients(-elbo_avg)
     train_op = opt.apply_gradients(grads, global_step=global_step)
 
-    log_hooks = make_log_hooks(global_step, elbo_avg) 
+    log_hooks = make_log_hooks(global_step, elbo_avg)
 
     with tf.train.MonitoredTrainingSession(
         master="",
@@ -278,7 +298,7 @@ def run_eval():
     splits = FLAGS.split.split(",")
     for split in splits:
       assert split in ["train", "test", "valid"]
-    
+
     num_iwae_samples = [int(x.strip()) for x in FLAGS.num_iwae_samples.split(",")]
     assert len(num_iwae_samples) == 1 or len(num_iwae_samples) == len(splits)
     if len(num_iwae_samples) == 1:
@@ -296,18 +316,18 @@ def run_eval():
     elbos = []
     for split, num_samples in zip(splits, num_iwae_samples):
       data_batch, mean, itr = get_dataset(
-              FLAGS.dataset, 
+              FLAGS.dataset,
               batch_size=FLAGS.batch_size,
               split=split,
-              repeat=False, 
+              repeat=False,
               shuffle=False,
               initializable=True)
       itrs.append(itr)
       batch_sizes.append(tf.shape(data_batch)[0])
       data_dim = data_batch.get_shape().as_list()[1]
       model = make_model(FLAGS.proposal, FLAGS.model, data_dim, mean, global_step)
-      elbos.append(tf.reduce_sum(model.log_prob(data_batch, num_samples=num_samples))) 
- 
+      elbos.append(tf.reduce_sum(model.log_prob(data_batch, num_samples=num_samples)))
+
     saver = tf.train.Saver()
     prev_evaluated_step = -1
     with tf.train.SingularMonitoredSession() as sess:
@@ -327,12 +347,12 @@ def run_eval():
           summary_writer.add_summary(summary, global_step=step)
           tf.logging.info("Step %d, %s %s: %f" % (step, splits[i], bound_names[i], avg_elbo))
         prev_evaluated_step = step
-    
+
 def main(unused_argv):
   if FLAGS.mode == "train":
     run_train()
   else:
     run_eval()
-  
+
 if __name__ == "__main__":
   tf.app.run(main)

@@ -159,7 +159,7 @@ def conditional_bernoulli(
 class VAE(object):
   """Variational autoencoder with continuous latent space."""
 
-  def __init__(self, 
+  def __init__(self,
                latent_dim,
                data_dim,
                decoder,
@@ -179,7 +179,7 @@ class VAE(object):
         log_prob().
       q_hidden_sizes: A list of python ints, the sizes of the hidden layers in the MLP
         that parameterizes the q of this VAE.
-      prior: A distribution over the clatent space of the VAE. The object must support 
+      prior: A distribution over the clatent space of the VAE. The object must support
         sample() and log_prob(). If not provided, defaults to Gaussian.
     """
     self.data_dim = data_dim
@@ -216,7 +216,7 @@ class VAE(object):
     data_dim = data.get_shape().as_list()[1]
 
     # Construct approximate posterior and sample z.
-    q_z = self.q(mean_centered_data) 
+    q_z = self.q(mean_centered_data)
     z = q_z.sample(sample_shape=[num_samples]) #[num_samples, batch_size, data_dim]
     log_q_z = q_z.log_prob(z) #[num_samples, batch_size]
 
@@ -230,7 +230,7 @@ class VAE(object):
     # Compute the model logprob of the data
     p_x_given_z = self.decoder(z)
     log_p_x_given_z = p_x_given_z.log_prob(data) #[num_samples, batch_size]
-    
+
     elbo = (tf.reduce_logsumexp(log_p_x_given_z + self.kl_weight*(log_p_z - log_q_z), axis=0) -
             tf.log(tf.to_float(num_samples)))
     return elbo
@@ -242,7 +242,7 @@ class VAE(object):
 
 class GaussianVAE(VAE):
   """VAE with Gaussian generative distribution."""
- 
+
   def __init__(self,
                latent_dim,
                data_dim,
@@ -267,10 +267,10 @@ class GaussianVAE(VAE):
             name="decoder")
 
     super().__init__(
-            latent_dim=latent_dim, 
+            latent_dim=latent_dim,
             data_dim=data_dim,
-            decoder=decoder_fn, 
-            q_hidden_sizes=q_hidden_sizes, 
+            decoder=decoder_fn,
+            q_hidden_sizes=q_hidden_sizes,
             data_mean=data_mean,
             prior=prior,
             scale_min=scale_min,
@@ -280,7 +280,7 @@ class GaussianVAE(VAE):
 
 class BernoulliVAE(VAE):
   """VAE with Gaussian generative distribution."""
- 
+
   def __init__(self,
                latent_dim,
                data_dim,
@@ -307,13 +307,13 @@ class BernoulliVAE(VAE):
             name="decoder")
 
     super().__init__(
-            latent_dim=latent_dim, 
-            data_dim=data_dim, 
-            decoder=decoder_fn, 
-            q_hidden_sizes=q_hidden_sizes, 
+            latent_dim=latent_dim,
+            data_dim=data_dim,
+            decoder=decoder_fn,
+            q_hidden_sizes=q_hidden_sizes,
             data_mean=data_mean,
-            prior=prior, 
-            scale_min=scale_min, 
+            prior=prior,
+            scale_min=scale_min,
             kl_weight=kl_weight,
             dtype=dtype,
             name=name)
@@ -321,19 +321,19 @@ class BernoulliVAE(VAE):
 class NIS(object):
 
   def __init__(self,
-               K, 
+               K,
                data_dim,
-               energy_hidden_sizes, 
+               energy_hidden_sizes,
                proposal=None,
                data_mean=None,
                dtype=tf.float32,
                name="nis"):
     """Creates a NIS model.
-    
+
     Args:
       K: The number of proposal samples to take.
       data_dim: The dimension of the data.
-      energy_hidden_sizes: The sizes of the hidden layers for the MLP that parameterizes the 
+      energy_hidden_sizes: The sizes of the hidden layers for the MLP that parameterizes the
         energy function.
       proposal: A distribution over the data space of this model. Must support sample()
         and log_prob() although log_prob only needs to return a lower bound on the true
@@ -356,7 +356,7 @@ class NIS(object):
                                                  scale_diag=tf.ones([data_dim], dtype=dtype))
     else:
       self.proposal = proposal
-  
+
   def log_prob(self, data, num_samples=1):
     batch_shape = tf.shape(data)[0:-1]
     reshaped_data = tf.reshape(data, [tf.math.reduce_prod(batch_shape), self.data_dim])
@@ -398,9 +398,91 @@ class NIS(object):
             self.energy_fn(proposal_samples - self.data_mean), shape) #[sample_shape, K]
     indexes = tfd.Categorical(logits=log_energy).sample() #[sample_shape]
     #[sample_shape, data_dim]
-    samples = tf.batch_gather(proposal_samples, tf.expand_dims(indexes, axis=-1)) 
+    samples = tf.batch_gather(proposal_samples, tf.expand_dims(indexes, axis=-1))
     return samples
 
+class BernoulliNIS(NIS):
+
+  def __init__(self,
+               K,
+               data_dim,
+               energy_hidden_sizes,
+               q_hidden_sizes,
+               proposal=None,
+               data_mean=None,
+               temperature=0.7,
+               dtype=tf.float32,
+               name="nis"):
+    self.q_fn = functools.partial(
+            conditional_bernoulli,
+            data_dim=data_dim,
+            hidden_sizes=q_hidden_sizes,
+            bias_init=data_mean,
+            dtype=dtype,
+            reparameterize_gst=True,
+            temperature=temperature,
+            name="%s/q_mlp" % name)
+    super().__init__(
+            K=K,
+            data_dim=data_dim,
+            energy_hidden_sizes=energy_hidden_sizes,
+            proposal=proposal,
+            data_mean=data_mean,
+            dtype=dtype,
+            name=name)
+
+  def _log_prob(self, data, num_samples=1):
+    batch_size = tf.shape(data)[0]
+    # Compute log weights for observed data
+    # [batch_size]
+    log_weights_data = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
+
+    # Sample the latent z's from the inference network
+    q = self.q_fn(data - self.data_mean)
+    # [num_samples, K, batch_size, data_size]
+    z_samples = q.sample([num_samples, self.K])
+
+    # [num_samples, K, batch_size, data_size]
+    x = z_samples - self.data_mean
+    # [num_samples, K, batch_size]
+    log_weight_z_samples = tf.reshape(self.energy_fn(x),
+            [num_samples, self.K, batch_size])
+    # [num_samples, batch_size]
+    log_sum_z_weights = tf.reduce_logsumexp(log_weight_z_samples, axis=1)
+
+    # Combine the latent z weight with the observed z weight to form the normalizing
+    # constant estimate.
+    # [num_samples, batch_size]
+    tiled_log_weights_data = tf.tile(log_weights_data[tf.newaxis,:], [num_samples, 1])
+    # [num_samples, batch_size]
+    Z_hat = tf.reduce_logsumexp(
+            tf.stack([tiled_log_weights_data, log_sum_z_weights], axis=-1), axis=-1)
+    Z_hat -= tf.log(tf.to_float(self.K+1))
+
+    # Calculate latent log_prob under proposal
+    try:
+      # Try giving the proposal lower bound extra compute if it can use it.
+      # [batch_size]
+      proposal_data_lp = self.proposal.log_prob(data, num_samples=num_samples)
+      #[num_samples, K, batch_size]
+      proposal_z_lp = self.proposal.log_prob(z_samples, num_samples=num_samples)
+    except TypeError:
+      # [batch_size]
+      proposal_lp = self.proposal.log_prob(data)
+      #[num_samples, K, batch_size]
+      proposal_z_lp = self.proposal.log_prob(z_samples)
+    # [num_samples, batch_size]
+    proposal_latents_lp_sum = tf.reduce_sum(proposal_z_lp, axis=1)
+
+    # Calculate latent log prob under inference network.
+    # [num_samples, K, batch_size]
+    q_lp = q.log_prob(z_samples)
+    # [num_samples, batch_size]
+    q_latents_lp = tf.reduce_sum(q_lp, axis=1)
+    # [batch_size]
+    expectation_sum = tf.reduce_logsumexp(proposal_latents_lp_sum - q_latents_lp - Z_hat, axis=0)
+    lower_bound = proposal_data_lp + log_weights_data + expectation_sum
+    return lower_bound
 
 def _expand_to_ta(x, length):
   x = tf.convert_to_tensor(x)
@@ -551,7 +633,7 @@ class HIS(object):
   def sample(self, sample_shape=[1]):
     x_and_rho = self.proposal.sample(sample_shape=sample_shape)
     x_0, rho_0 = tf.split(x_and_rho, 2, axis=-1)
-    x_T, rho_T, xs = _hamiltonian_dynamics(x_0, rho_0, self.energy_fn, self.T, 
+    x_T, rho_T, xs = _hamiltonian_dynamics(x_0, rho_0, self.energy_fn, self.T,
                                           step_size=self.step_size, temps=self.alphas)
     return x_T, rho_T, xs
 
