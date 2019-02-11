@@ -366,29 +366,39 @@ class NIS(object):
 
   def _log_prob(self, data, num_samples=1):
     batch_size = tf.shape(data)[0]
+    # Sample from the proposal and compute the weighs of the "unseen" samples.
+    # We share these across the batch dimension.
+    # [num_samples, K, data_size]
+    proposal_samples = self.proposal.sample([num_samples, self.K])
+    # [num_samples, K]
+    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples - self.data_mean),
+            [num_samples, self.K])
+    # [num_samples]
+    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1)
+    # [batch_size, num_samples]
+    tiled_proposal_lse = tf.tile(proposal_lse[tf.newaxis,:], [batch_size, 1])
 
-    # [K, data_size]
-    proposal_samples = self.proposal.sample([self.K])
-    # [batch_size]
-    log_energy_target = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
-    # [K])
-    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples - self.data_mean), [self.K])
-    # [1]
-    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, keepdims=True)
-    # [batch_size]
-    tiled_proposal_lse = tf.tile(proposal_lse, [batch_size])
+    # Compute the weights of the observed data.
+    # [batch_size, 1]
+    log_energy_data = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
+    # [batch_size, num_samples]
+    tiled_log_energy_data = tf.tile(log_energy_data[:, tf.newaxis], [1, num_samples])
 
+    # Add the weights of the proposal samples with the true data weights.
+    # [batch_size, num_samples]
+    Z_hat = tf.reduce_logsumexp(
+            tf.stack([tiled_log_energy_data, tiled_proposal_lse], axis=-1), axis=-1)
+    Z_hat -= tf.log(tf.to_float(self.K+1))
+    # Perform the log-sum-exp reduction for IWAE
     # [batch_size]
-    denom = tf.reduce_logsumexp(
-            tf.stack([log_energy_target, tiled_proposal_lse], axis=-1), axis=-1)
-    denom -= tf.log(tf.to_float(self.K+1))
+    Z_hat = tf.reduce_logsumexp(Z_hat, axis=1) - tf.log(tf.to_float(num_samples))
 
     try:
-      # Try giving the proposal lower bound extra compute if it can use it.
+      # Try giving the proposal lower bound num_samples if it can use it.
       proposal_lp = self.proposal.log_prob(data, num_samples=num_samples)
     except TypeError:
       proposal_lp = self.proposal.log_prob(data)
-    lower_bound = proposal_lp + log_energy_target - denom
+    lower_bound = proposal_lp + log_energy_data - Z_hat
     return lower_bound
 
   def sample(self, sample_shape=[1]):
