@@ -230,9 +230,11 @@ def run_train():
     train_op = opt.apply_gradients(grads, global_step=global_step)
 
     log_hooks = make_log_hooks(global_step, elbo_avg)
-
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth=True
     with tf.train.MonitoredTrainingSession(
         master="",
+        config=config,
         is_chief=True,
         hooks=log_hooks,
         checkpoint_dir=FLAGS.logdir,
@@ -330,7 +332,9 @@ def run_eval():
 
     saver = tf.train.Saver()
     prev_evaluated_step = -1
-    with tf.train.SingularMonitoredSession() as sess:
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth=True
+    with tf.train.SingularMonitoredSession(config=config) as sess:
       while True:
         wait_for_checkpoint(saver, sess, FLAGS.logdir)
         step = sess.run(global_step)
