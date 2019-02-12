@@ -513,55 +513,75 @@ def _expand_to_ta(x, length):
 def _hamiltonian_dynamics(x_0, momentum_0, energy_fn, T, step_size, temps):
   temperature_ta = _expand_to_ta(temps, T)
   t_0 = tf.constant(0, tf.int32, name="t_0")
-  xs = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
+  x_ta = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
                       clear_after_read=False,infer_shape=True)
+  momentum_ta = tf.TensorArray(dtype=momentum_0.dtype, size=T, dynamic_size=False,
+                               clear_after_read=False,infer_shape=True)
+  kinetic_energy_ta = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
+                                     clear_after_read=False,infer_shape=True)
+  potential_energy_ta = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
+                                       clear_after_read=False,infer_shape=True)
+  tas = [x_ta, momentum_ta, kinetic_energy_ta, potential_energy_ta]
 
-  def _step(t, prev_x, prev_momentum, prev_energy_grad, xs):
+  def _step(t, prev_x, prev_momentum, prev_energy_grad, tas):
     temp = temperature_ta.read(t)
     momentum_tilde = prev_momentum - (step_size/2.)*prev_energy_grad
     new_x = prev_x + step_size*momentum_tilde
-    new_xs = xs.write(t, new_x)
-    energy_at_new_x = energy_fn(new_x)
+    energy_at_new_x = tf.squeeze(energy_fn(new_x))
     grad_energy_at_new_x = tf.gradients(energy_at_new_x, new_x)[0]
     new_momentum = temp*(momentum_tilde - (step_size/2.)*grad_energy_at_new_x)
-    return (t+1, new_x, new_momentum, grad_energy_at_new_x, new_xs)
+    kinetic_energy = tf.reduce_sum(tf.square(new_momentum)/2.)
+    ta_updates = [new_x, new_momentum, kinetic_energy, energy_at_new_x]
+    tas = [ta.write(t, z) for ta, z in zip(tas, ta_updates)]
+    return (t+1, new_x, new_momentum, grad_energy_at_new_x, tas)
 
   def _predicate(t, *unused_args):
     return t < T
 
   grad_energy_0 = tf.gradients(energy_fn(x_0), x_0)[0]
-  _, final_x, final_momentum, _, xs = tf.while_loop(
+  _, final_x, final_momentum, _, tas = tf.while_loop(
       _predicate,
       _step,
-      loop_vars=(t_0, x_0, momentum_0, grad_energy_0, xs))
-  return final_x, final_momentum, xs.stack()
+      loop_vars=(t_0, x_0, momentum_0, grad_energy_0, tas))
+  xs, momentums, kes, pes = [t.stack() for t in tas]
+  return final_x, final_momentum, xs, momentums, kes, pes 
 
 
 def _reverse_hamiltonian_dynamics(x_T, momentum_T, energy_fn, T, step_size, temps):
   temperature_ta = _expand_to_ta(temps, T)
   t_T = tf.constant(T-1, tf.int32, name="t_T")
-  xs = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
+  x_ta = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
                       clear_after_read=False,infer_shape=True)
+  momentum_ta = tf.TensorArray(dtype=momentum_T.dtype, size=T, dynamic_size=False,
+                               clear_after_read=False,infer_shape=True)
+  kinetic_energy_ta = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
+                                     clear_after_read=False,infer_shape=True)
+  potential_energy_ta = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
+                                       clear_after_read=False,infer_shape=True)
+  tas = [x_ta, momentum_ta, kinetic_energy_ta, potential_energy_ta]
 
-  def _step(t, next_x, next_momentum, next_energy_grad, xs):
+  def _step(t, next_x, next_momentum, next_energy_grad, tas):
     temp = temperature_ta.read(t)
     momentum_tilde = next_momentum/temp + (step_size/2.)*next_energy_grad
     prev_x = next_x - step_size*momentum_tilde
-    energy_at_prev_x = energy_fn(prev_x)
+    energy_at_prev_x = tf.squeeze(energy_fn(prev_x))
     grad_energy_at_prev_x = tf.gradients(energy_at_prev_x, prev_x)[0]
     prev_momentum = momentum_tilde + (step_size/2.)*grad_energy_at_prev_x
-    new_xs = xs.write(t, prev_x)
-    return (t-1, prev_x, prev_momentum, grad_energy_at_prev_x, new_xs)
+    kinetic_energy = tf.reduce_sum(tf.square(prev_momentum)/2.)
+    ta_updates = [prev_x, prev_momentum, kinetic_energy, energy_at_prev_x]
+    new_tas = [ta.write(t, z) for ta, z in zip(tas, ta_updates)]
+    return (t-1, prev_x, prev_momentum, grad_energy_at_prev_x, new_tas)
 
   def _predicate(t, *unused_args):
     return t >= 0
 
   grad_energy_T = tf.gradients(energy_fn(x_T), x_T)[0]
-  _, x_0, momentum_0, _, xs = tf.while_loop(
+  _, x_0, momentum_0, _, tas= tf.while_loop(
       _predicate,
       _step,
-      loop_vars=(t_T, x_T, momentum_T, grad_energy_T, xs))
-  return x_0, momentum_0, xs.stack()
+      loop_vars=(t_T, x_T, momentum_T, grad_energy_T, tas))
+  xs, momentums, kes, pes = [t.stack() for t in tas]
+  return x_0, momentum_0, xs, momentums, kes, pes
 
 class HIS(object):
 
