@@ -654,8 +654,8 @@ class HIS(object):
     q = self.q(data)
     rho_T = q.sample([num_samples])
     x_T = tf.tile(data[tf.newaxis,:,:], [num_samples, 1,1])
-    x_0, rho_0, _ = _reverse_hamiltonian_dynamics(x_T, rho_T, self.energy_fn, self.T,
-                                                  step_size=self.step_size, temps=self.alphas)
+    x_0, rho_0, _, _, _, _ = _reverse_hamiltonian_dynamics(x_T, rho_T, self.energy_fn, self.T,
+                                                           step_size=self.step_size, temps=self.alphas)
     log_p0 = self.proposal.log_prob(tf.concat([x_0, rho_0], axis=2))
     elbo = log_p0 - self.data_dim*tf.reduce_sum(tf.log(self.alphas)) - q.log_prob(rho_T)
     return tf.reduce_logsumexp(elbo, axis=0) - tf.log(tf.to_float(num_samples))
@@ -663,7 +663,7 @@ class HIS(object):
   def sample(self, sample_shape=[1]):
     x_and_rho = self.proposal.sample(sample_shape=sample_shape)
     x_0, rho_0 = tf.split(x_and_rho, 2, axis=-1)
-    x_T, rho_T, xs = _hamiltonian_dynamics(x_0, rho_0, self.energy_fn, self.T,
-                                          step_size=self.step_size, temps=self.alphas)
+    x_T, rho_T, xs, _, _, _ = _hamiltonian_dynamics(x_0, rho_0, self.energy_fn, self.T,
+                                                    step_size=self.step_size, temps=self.alphas)
     return x_T, rho_T, xs
 
