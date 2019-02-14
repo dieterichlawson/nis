@@ -70,24 +70,6 @@ class GSTBernoulli(tfd.Bernoulli):
     sample = soft_sample + tf.stop_gradient(hard_sample - soft_sample)
     return tf.cast(sample, self.dtype)
 
-  def log_prob(self, value, name="log_prob"):
-    lp = super(GSTBernoulli, self).log_prob(value, name=name)
-    return tf.reduce_sum(lp, axis=-1)
-
-
-class MultivariateTruncatedNormal(tfd.TruncatedNormal):
-
-  def log_prob(self, value, name="log_prob"):
-    lp = super(MultivariateTruncatedNormal, self).log_prob(value, name=name)
-    return tf.reduce_sum(lp, axis=-1)
-
-
-class MultivariateBernoulli(tfd.Bernoulli):
-
-  def log_prob(self, value, name="log_prob"):
-    lp = super(MultivariateBernoulli, self).log_prob(value, name=name)
-    return tf.reduce_sum(lp, axis=-1)
-
 def mlp(inputs,
         layer_sizes,
         hidden_activation=tf.math.tanh,
@@ -115,6 +97,7 @@ def conditional_normal(
         hidden_activation=tf.math.tanh,
         scale_min=1e-5,
         truncate=False,
+        squash=False,
         bias_init=None,
         name=None):
     raw_params = mlp(inputs,
@@ -122,13 +105,24 @@ def conditional_normal(
                      hidden_activation=hidden_activation,
                      final_activation=None,
                      name=name)
+    assert truncate != squash, "Cannot squash and truncate"
+
     loc, raw_scale = tf.split(raw_params, 2, axis=-1)
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
     if bias_init is not None:
       loc = loc + bias_init
     if truncate:
       loc = tf.math.sigmoid(loc)
-      return MultivariateTruncatedNormal(loc=loc, scale=scale, low=0., high=1.)
+      return tfd.Independent(
+              TruncatedNormal(loc=loc, scale=scale, low=0., high=1.),
+              reinterpreted_batch_ndims=1) 
+    elif squash:
+      return tfd.Independent(
+              tfd.TransformedDistribution(
+                  distribution=tfd.Normal(loc=loc, scale=scale),
+                  bijector=tfp.bijectors.Sigmoid(),
+                  name="SigmoidTransformedNormalDistribution"),
+              reinterpreted_batch_ndims=1)
     else:
       return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
 
@@ -148,13 +142,14 @@ def conditional_bernoulli(
                       final_activation=None,
                       name=name)
     if bias_init is not None:
-      bern_logits = bern_logits + -tf.log(1. / tf.clip_by_value(bias_init, 0.0001, 0.9999) - 1)
+      bern_logits = bern_logits -tf.log(1. / tf.clip_by_value(bias_init, 0.0001, 0.9999) - 1)
 
     if reparameterize_gst:
       assert temperature is not None
-      return GSTBernoulli(temperature, logits=bern_logits, dtype=dtype)
+      base_dist =  GSTBernoulli(temperature, logits=bern_logits, dtype=dtype)
     else:
-      return MultivariateBernoulli(logits=bern_logits, dtype=dtype)
+      base_dist = Bernoulli(logits=bern_logits, dtype=dtype)
+    return tfd.Independent(base_dist, reinterpreted_batch_ndims=1)
 
 class VAE(object):
   """Variational autoencoder with continuous latent space."""
