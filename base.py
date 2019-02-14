@@ -325,6 +325,7 @@ class NIS(object):
                energy_hidden_sizes,
                proposal=None,
                data_mean=None,
+               reparam_samples=True,
                dtype=tf.float32,
                name="nis"):
     """Creates a NIS model.
@@ -339,6 +340,7 @@ class NIS(object):
         log probability. If not supplied, then defaults to Gaussian.
     """
     self.data_dim = data_dim
+    self.reparam_samples = reparam_samples
     if data_mean is not None:
       self.data_mean = data_mean
     else:
@@ -369,6 +371,9 @@ class NIS(object):
     # We share these across the batch dimension.
     # [num_samples, K, data_size]
     proposal_samples = self.proposal.sample([num_samples, self.K])
+    if not self.reparam_samples:
+      proposal_samples = tf.stop_gradient(proposal_samples)
+
     # [num_samples, K]
     log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples - self.data_mean),
             [num_samples, self.K])

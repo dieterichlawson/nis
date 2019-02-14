@@ -22,15 +22,16 @@ tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","nis", "bnis", "his"],
                         "Model type to use.")
-tf.app.flags.DEFINE_boolean("reparam_vae_prior", True,
-                            "If true, reparameterize the sample of a Bernoulli VAE prior"
-                            "with Gumbel straight-through.")
+tf.app.flags.DEFINE_boolean("reparam_prior", True,
+                            "If true, reparameterize the samples of the prior.")
 tf.app.flags.DEFINE_float("gst_temperature", 0.7,
                           "Default temperature for the Gumbel straight-through relaxation.")
 tf.app.flags.DEFINE_boolean("learn_his_temps", False,
                             "If true, the annealing schedule of HIS is learnable.")
 tf.app.flags.DEFINE_boolean("learn_his_stepsize", False,
                             "If true, the step size of HIS is learnable.")
+tf.app.flags.DEFINE_float("his_init_alpha", 0.9995, "Initial alpha for HIS.")
+tf.app.flags.DEFINE_float("his_init_stepsize", 0.01, "Initial stepsize for HIS.")
 tf.app.flags.DEFINE_integer("his_T", 100,
                             "The number of timesteps to run Hamiltonian dynamics for in HIS.")
 tf.app.flags.DEFINE_integer("latent_dim", 50,
@@ -122,7 +123,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
             kl_weight=kl_weight,
-            reparameterize_sample=FLAGS.reparam_vae_prior,
+            reparameterize_sample=FLAGS.reparam_prior,
             temperature=FLAGS.gst_temperature,
             dtype=tf.float32)
   elif proposal_type == "gaussian_vae":
@@ -186,6 +187,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             data_mean=mean,
             energy_hidden_sizes=[100, 100],
             proposal=proposal,
+            reparam_samples=FLAGS.reparam_prior,
             dtype=tf.float32)
   elif model_type == "bnis":
     model = base.BernoulliNIS(
@@ -201,10 +203,13 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     model = base.HIS(
             T=FLAGS.his_T,
             data_dim=data_dim,
+            data_mean=mean,
             energy_hidden_sizes=[100, 100],
             q_hidden_sizes=[300,300],
             learn_temps=FLAGS.learn_his_temps,
             learn_stepsize=FLAGS.learn_his_stepsize,
+            init_alpha=FLAGS.his_init_alpha,
+            init_step_size=FLAGS.his_init_stepsize,
             dtype=tf.float32)
 
   return model
