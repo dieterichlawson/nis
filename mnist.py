@@ -127,7 +127,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
             kl_weight=kl_weight,
-            truncate=False,
+            squash=False,
             dtype=tf.float32)
   elif proposal_type == "nis":
     proposal = base.NIS(

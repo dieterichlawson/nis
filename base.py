@@ -105,7 +105,7 @@ def conditional_normal(
                      hidden_activation=hidden_activation,
                      final_activation=None,
                      name=name)
-    assert truncate != squash, "Cannot squash and truncate"
+    assert (not truncate) or (not squash), "Cannot squash and truncate"
 
     loc, raw_scale = tf.split(raw_params, 2, axis=-1)
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
@@ -119,10 +119,13 @@ def conditional_normal(
     elif squash:
       return tfd.Independent(
               tfd.TransformedDistribution(
-                  distribution=tfd.Normal(loc=loc, scale=scale),
-                  bijector=tfp.bijectors.Sigmoid(),
-                  name="SigmoidTransformedNormalDistribution"),
-              reinterpreted_batch_ndims=1)
+                  tfd.TransformedDistribution(
+                      distribution=tfd.Normal(loc=loc, scale=scale),
+                      bijector=tfp.bijectors.Sigmoid(),
+                      name="SigmoidTransformedNormalDistribution"),
+                  bijector=tfp.bijectors.AffineScalar(shift=-scale_min/2., scale=(1. + scale_min)),
+                  name="AffineTransformedNormalDistribution"),
+                reinterpreted_batch_ndims=1)
     else:
       return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
 
@@ -247,7 +250,7 @@ class GaussianVAE(VAE):
                data_mean=None,
                scale_min=1e-5,
                dtype=tf.float32,
-               truncate=True,
+               squash=False,
                kl_weight=1.,
                name="gaussian_vae"):
     # Make the decoder with a Gaussian distribution
@@ -258,7 +261,8 @@ class GaussianVAE(VAE):
             hidden_sizes=decoder_hidden_sizes,
             scale_min=scale_min,
             bias_init=data_mean,
-            truncate=truncate,
+            truncate=False,
+            squash=squash,
             name="decoder")
 
     super().__init__(
@@ -611,6 +615,7 @@ class HIS(object):
             scale_min=scale_min,
             bias_init=None,
             truncate=False,
+            squash=False,
             name="decoder")
 
       init_alpha = -np.log(1./init_alpha - 1.)
