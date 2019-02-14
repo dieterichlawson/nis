@@ -24,6 +24,8 @@ tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
                         "Model type to use.")
 tf.app.flags.DEFINE_boolean("reparam_prior", True,
                             "If true, reparameterize the samples of the prior.")
+tf.app.flags.DEFINE_boolean("squash", False,
+                            "If true, squash the output of the normal prior to be between 0 and 1.")
 tf.app.flags.DEFINE_float("gst_temperature", 0.7,
                           "Default temperature for the Gumbel straight-through relaxation.")
 tf.app.flags.DEFINE_boolean("learn_his_temps", False,
@@ -64,6 +66,11 @@ tf.app.flags.DEFINE_integer("num_summary_ims", 8,
                             "The number of images to sample from the model for evaluation.")
 
 FLAGS = tf.app.flags.FLAGS
+
+def print_flags():
+  tf.logging.info("Running mnist.py with arguments.")
+  for k, v in tf.app.flags.FLAGS.flag_values_dict().items():
+    tf.logging.info("    %s: %s", k, v)
 
 def make_log_hooks(global_step, elbo):
   hooks = []
@@ -134,7 +141,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
             kl_weight=kl_weight,
-            squash=False,
+            squash=FLAGS.squash,
             dtype=tf.float32)
   elif proposal_type == "nis":
     proposal = base.NIS(
@@ -215,6 +222,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   return model
 
 def run_train():
+  print_flags()
   g = tf.Graph()
   with g.as_default():
     global_step = tf.train.get_or_create_global_step()
@@ -308,6 +316,7 @@ def wait_for_checkpoint(saver, sess, logdir):
     time.sleep(30)
 
 def run_eval():
+  print_flags()
   g = tf.Graph()
   with g.as_default():
     # If running eval, do not anneal the KL.
