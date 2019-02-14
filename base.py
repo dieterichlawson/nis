@@ -609,7 +609,7 @@ class HIS(object):
     else:
       self.data_mean = tf.zeros((), dtype=dtype)
     self.T = T
-    with tf.name_scope(name):
+    with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
       self.energy_fn = functools.partial(
             mlp,
             layer_sizes=energy_hidden_sizes + [1],
