@@ -20,13 +20,19 @@ tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis"],
                         "Proposal type to use.")
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
-                        ["bernoulli_vae","gaussian_vae","nis", "bnis"],
+                        ["bernoulli_vae","gaussian_vae","nis", "bnis", "his"],
                         "Model type to use.")
 tf.app.flags.DEFINE_boolean("reparam_vae_prior", True,
                             "If true, reparameterize the sample of a Bernoulli VAE prior"
                             "with Gumbel straight-through.")
 tf.app.flags.DEFINE_float("gst_temperature", 0.7,
                           "Default temperature for the Gumbel straight-through relaxation.")
+tf.app.flags.DEFINE_boolean("learn_his_temps", False,
+                            "If true, the annealing schedule of HIS is learnable.")
+tf.app.flags.DEFINE_boolean("learn_his_stepsize", False,
+                            "If true, the step size of HIS is learnable.")
+tf.app.flags.DEFINE_integer("his_T", 100,
+                            "The number of timesteps to run Hamiltonian dynamics for in HIS.")
 tf.app.flags.DEFINE_integer("latent_dim", 50,
                             "Dimension of the latent space of the VAE.")
 tf.app.flags.DEFINE_integer("K", 128,
@@ -190,6 +196,15 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             q_hidden_sizes=[300, 300],
             proposal=proposal,
             temperature=FLAGS.gst_temperature,
+            dtype=tf.float32)
+  elif model_type == "his":
+    model = base.HIS(
+            T=FLAGS.his_T,
+            data_dim=data_dim,
+            energy_hidden_sizes=[100, 100],
+            q_hidden_sizes=[300,300],
+            learn_temps=FLAGS.learn_his_temps,
+            learn_stepsize=FLAGS.learn_his_stepsize,
             dtype=tf.float32)
 
   return model

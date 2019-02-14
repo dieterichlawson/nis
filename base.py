@@ -593,6 +593,8 @@ class HIS(object):
                data_mean=None,
                init_alpha=1.,
                init_step_size=0.01,
+               learn_temps=False,
+               learn_stepsize=False,
                scale_min=1e-5,
                dtype=tf.float32,
                name="his"):
@@ -623,16 +625,14 @@ class HIS(object):
                                        shape=[T],
                                        dtype=tf.float32,
                                        initializer=tf.constant_initializer(init_alpha),
-                                       trainable=False)
+                                       trainable=learn_temps)
       self.alphas = tf.math.sigmoid(self.raw_alphas)
-      for i in range(T):
-        tf.summary.scalar("alpha_%d" % i, self.alphas[i])
       init_step_size = np.log(np.exp(init_step_size) - 1.)
       self.raw_step_size = tf.get_variable(name="raw_step_size",
                                            shape=[data_dim],
                                            dtype=tf.float32,
                                            initializer=tf.constant_initializer(init_step_size),
-                                           trainable=False)
+                                           trainable=learn_stepsize)
       self.step_size = tf.math.softplus(self.raw_step_size)
       for i in range(data_dim):
         tf.summary.scalar("step_size_%d" % i, self.step_size[i])
@@ -665,5 +665,5 @@ class HIS(object):
     x_0, rho_0 = tf.split(x_and_rho, 2, axis=-1)
     x_T, rho_T, xs, _, _, _ = _hamiltonian_dynamics(x_0, rho_0, self.energy_fn, self.T,
                                                     step_size=self.step_size, temps=self.alphas)
-    return x_T, rho_T, xs
+    return x_T#, rho_T, xs
 
