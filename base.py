@@ -592,8 +592,8 @@ class HIS(object):
                q_hidden_sizes,
                proposal=None,
                data_mean=None,
-               init_alpha=0.9995,
-               init_step_size=0.03,
+               init_alpha=1.,
+               init_step_size=0.01,
                scale_min=1e-5,
                dtype=tf.float32,
                name="his"):
@@ -623,7 +623,7 @@ class HIS(object):
                                        shape=[T],
                                        dtype=tf.float32,
                                        initializer=tf.constant_initializer(init_alpha),
-                                       trainable=True)
+                                       trainable=False)
       self.alphas = tf.math.sigmoid(self.raw_alphas)
       for i in range(T):
         tf.summary.scalar("alpha_%d" % i, self.alphas[i])
@@ -632,7 +632,7 @@ class HIS(object):
                                            shape=[data_dim],
                                            dtype=tf.float32,
                                            initializer=tf.constant_initializer(init_step_size),
-                                           trainable=True)
+                                           trainable=False)
       self.step_size = tf.math.softplus(self.raw_step_size)
       for i in range(data_dim):
         tf.summary.scalar("step_size_%d" % i, self.step_size[i])

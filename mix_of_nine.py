@@ -314,9 +314,9 @@ def main(unused_argv):
       print("Running HIS")
       loss, train_op, global_step = make_his_graph(
         batch_size=FLAGS.batch_size,
-        T=100,
+        T=25,
         lr=FLAGS.learning_rate,
-        mlp_layers=[40,40],
+        mlp_layers=[20,20],
         dtype=tf.float32)
 
     log_hooks = make_log_hooks(global_step, loss) 
