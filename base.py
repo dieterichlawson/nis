@@ -98,6 +98,7 @@ def conditional_normal(
         scale_min=1e-5,
         truncate=False,
         squash=False,
+        squash_eps=1e-4
         bias_init=None,
         name=None):
     raw_params = mlp(inputs,
@@ -109,6 +110,8 @@ def conditional_normal(
 
     loc, raw_scale = tf.split(raw_params, 2, axis=-1)
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
+    tf.summary.histogram("scale", scale)
+    tf.summary.scalar("min_scale", tf.reduce_min(scale))
     if bias_init is not None:
       loc = loc + bias_init
     if truncate:
@@ -123,7 +126,7 @@ def conditional_normal(
                       distribution=tfd.Normal(loc=loc, scale=scale),
                       bijector=tfp.bijectors.Sigmoid(),
                       name="SigmoidTransformedNormalDistribution"),
-                  bijector=tfp.bijectors.AffineScalar(shift=-scale_min/2., scale=(1. + scale_min)),
+                  bijector=tfp.bijectors.AffineScalar(shift=-squash_eps/2., scale=(1. + squash_eps)),
                   name="AffineTransformedNormalDistribution"),
                 reinterpreted_batch_ndims=1)
     else:
@@ -373,14 +376,22 @@ class NIS(object):
     # [num_samples, K]
     log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples - self.data_mean),
             [num_samples, self.K])
+    tf.summary.histogram("log_energy_proposal", log_energy_proposal)
+    tf.summary.scalar("min_log_energy_proposal", tf.reduce_min(log_energy_proposal))
+    tf.summary.scalar("max_log_energy_proposal", tf.reduce_max(log_energy_proposal))
     # [num_samples]
     proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1)
+
     # [batch_size, num_samples]
     tiled_proposal_lse = tf.tile(proposal_lse[tf.newaxis,:], [batch_size, 1])
 
     # Compute the weights of the observed data.
     # [batch_size, 1]
     log_energy_data = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
+    tf.summary.histogram("log_energy_data", log_energy_data)
+    tf.summary.scalar("min_log_energy_data", tf.reduce_min(log_energy_data))
+    tf.summary.scalar("max_log_energy_data", tf.reduce_max(log_energy_data))
+
     # [batch_size, num_samples]
     tiled_log_energy_data = tf.tile(log_energy_data[:, tf.newaxis], [1, num_samples])
 
@@ -652,8 +663,11 @@ class HIS(object):
     q = self.q(data)
     rho_T = q.sample([num_samples])
     x_T = tf.tile(data[tf.newaxis,:,:], [num_samples, 1,1])
-    x_0, rho_0, _, _, _, _ = _reverse_hamiltonian_dynamics(x_T, rho_T, self.energy_fn, self.T,
-                                                           step_size=self.step_size, temps=self.alphas)
+    x_0, rho_0, _, _, _, pes = _reverse_hamiltonian_dynamics(x_T, rho_T, self.energy_fn, self.T,
+                                                             step_size=self.step_size, temps=self.alphas)
+    tf.summary.histogram("energies", pes)
+    tf.summary.scalar("min_energies", tf.reduce_min(pes))
+    tf.summary.scalar("max_energies", tf.reduce_max(pes))
     log_p0 = self.proposal.log_prob(tf.concat([x_0, rho_0], axis=2))
     elbo = log_p0 - self.data_dim*tf.reduce_sum(tf.log(self.alphas)) - q.log_prob(rho_T)
     return tf.reduce_logsumexp(elbo, axis=0) - tf.log(tf.to_float(num_samples))
