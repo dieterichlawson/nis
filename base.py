@@ -187,13 +187,12 @@ class VAE(object):
       self.data_mean = tf.zeros((), dtype=dtype)
     self.decoder = decoder
     self.kl_weight = kl_weight
-    with tf.name_scope(name):
-      self.q = functools.partial(
-            conditional_normal,
-            data_dim=latent_dim,
-            hidden_sizes=q_hidden_sizes,
-            scale_min=scale_min,
-            name="q")
+    self.q = functools.partial(
+          conditional_normal,
+          data_dim=latent_dim,
+          hidden_sizes=q_hidden_sizes,
+          scale_min=scale_min,
+          name="%s/q" % name)
     self.dtype = dtype
     if prior is None:
       self.prior = tfd.MultivariateNormalDiag(loc=tf.zeros([latent_dim], dtype=dtype),
@@ -254,8 +253,7 @@ class GaussianVAE(VAE):
                kl_weight=1.,
                name="gaussian_vae"):
     # Make the decoder with a Gaussian distribution
-    with tf.name_scope(name):
-      decoder_fn = functools.partial(
+    decoder_fn = functools.partial(
             conditional_normal,
             data_dim=data_dim,
             hidden_sizes=decoder_hidden_sizes,
@@ -263,7 +261,7 @@ class GaussianVAE(VAE):
             bias_init=data_mean,
             truncate=False,
             squash=squash,
-            name="decoder")
+            name="%s/decoder" % name)
 
     super().__init__(
             latent_dim=latent_dim,
@@ -292,18 +290,17 @@ class BernoulliVAE(VAE):
                reparameterize_sample=False,
                temperature=None,
                dtype=tf.float32,
-               name="gaussian_vae"):
+               name="bernoulli_vae"):
     # Make the decoder with a Gaussian distribution
-    with tf.name_scope(name):
-      decoder_fn = functools.partial(
-            conditional_bernoulli,
-            data_dim=data_dim,
-            hidden_sizes=decoder_hidden_sizes,
-            bias_init=data_mean,
-            dtype=dtype,
-            reparameterize_gst=reparameterize_sample,
-            temperature=temperature,
-            name="decoder")
+    decoder_fn = functools.partial(
+          conditional_bernoulli,
+          data_dim=data_dim,
+          hidden_sizes=decoder_hidden_sizes,
+          bias_init=data_mean,
+          dtype=dtype,
+          reparameterize_gst=reparameterize_sample,
+          temperature=temperature,
+          name="%s/decoder" % name)
 
     super().__init__(
             latent_dim=latent_dim,
@@ -346,12 +343,11 @@ class NIS(object):
     else:
       self.data_mean = tf.zeros((), dtype=dtype)
     self.K = K
-    with tf.name_scope(name):
-      self.energy_fn = functools.partial(
-            mlp,
-            layer_sizes=energy_hidden_sizes + [1],
-            final_activation=None,
-            name="energy_fn_mlp")
+    self.energy_fn = functools.partial(
+          mlp,
+          layer_sizes=energy_hidden_sizes + [1],
+          final_activation=None,
+          name="%s/energy_fn_mlp" % name)
     if proposal is None:
       self.proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([data_dim], dtype=dtype),
                                                  scale_diag=tf.ones([data_dim], dtype=dtype))
@@ -435,7 +431,7 @@ class BernoulliNIS(NIS):
             dtype=dtype,
             reparameterize_gst=True,
             temperature=temperature,
-            name="%s/q_mlp" % name)
+            name="%s/q" % name)
     super().__init__(
             K=K,
             data_dim=data_dim,
@@ -609,28 +605,27 @@ class HIS(object):
     else:
       self.data_mean = tf.zeros((), dtype=dtype)
     self.T = T
-    with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
-      self.energy_fn = functools.partial(
-            mlp,
-            layer_sizes=energy_hidden_sizes + [1],
-            final_activation=None,
-            name="energy_fn_mlp")
-      self.q = functools.partial(
-            conditional_normal,
-            data_dim=data_dim,
-            hidden_sizes=q_hidden_sizes,
-            scale_min=scale_min,
-            bias_init=None,
-            truncate=False,
-            squash=False,
-            name="decoder")
-
-      init_alpha = -np.log(1./init_alpha - 1.)
+    self.energy_fn = functools.partial(
+          mlp,
+          layer_sizes=energy_hidden_sizes + [1],
+          final_activation=None,
+          name="%s/energy_fn_mlp" % name)
+    self.q = functools.partial(
+          conditional_normal,
+          data_dim=data_dim,
+          hidden_sizes=q_hidden_sizes,
+          scale_min=scale_min,
+          bias_init=None,
+          truncate=False,
+          squash=False,
+          name="%s/q" % name)
+    init_alpha = -np.log(1./init_alpha - 1.)
+    with tf.name_scope(name):
       self.raw_alphas = tf.get_variable(name="raw_alpha",
-                                       shape=[T],
-                                       dtype=tf.float32,
-                                       initializer=tf.constant_initializer(init_alpha),
-                                       trainable=learn_temps)
+                                        shape=[T],
+                                        dtype=tf.float32,
+                                        initializer=tf.constant_initializer(init_alpha),
+                                        trainable=learn_temps)
       self.alphas = tf.math.sigmoid(self.raw_alphas)
       init_step_size = np.log(np.exp(init_step_size) - 1.)
       self.raw_step_size = tf.get_variable(name="raw_step_size",
@@ -639,8 +634,6 @@ class HIS(object):
                                            initializer=tf.constant_initializer(init_step_size),
                                            trainable=learn_stepsize)
       self.step_size = tf.math.softplus(self.raw_step_size)
-      for i in range(data_dim):
-        tf.summary.scalar("step_size_%d" % i, self.step_size[i])
 
     if proposal is None:
       self.proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2*data_dim], dtype=dtype),
