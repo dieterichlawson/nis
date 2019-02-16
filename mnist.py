@@ -190,7 +190,6 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             decoder_hidden_sizes=[300, 300],
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
-            truncate=False,
             prior=proposal,
             kl_weight=kl_weight,
             dtype=tf.float32)
