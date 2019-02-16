@@ -121,10 +121,17 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   kl_weight = make_kl_weight(global_step, FLAGS.anneal_kl_step)
   # Bernoulli VAE proposal gets that data mean because it is proposing images.
   # Other proposals don't because they are proposing latent states.
+  if model_type == "his":
+    proposal_data_dim = 2*data_dim
+  elif model_type == "nis" or model_type == "bnis":
+    proposal_data_dim = data_dim
+  elif model_type == "bernolli_vae" or model_type == "gaussian_vae":
+    proposal_data_dim = FLAGS.latent_dim
+
   if proposal_type == "bernoulli_vae":
     proposal = base.BernoulliVAE(
             latent_dim=FLAGS.latent_dim,
-            data_dim=data_dim,
+            data_dim=proposal_data_dim,
             data_mean=mean,
             decoder_hidden_sizes=[300, 300],
             q_hidden_sizes=[300, 300],
@@ -136,7 +143,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   elif proposal_type == "gaussian_vae":
     proposal = base.GaussianVAE(
             latent_dim=FLAGS.latent_dim,
-            data_dim=data_dim,
+            data_dim=proposal_data_dim,
             decoder_hidden_sizes=[300, 300],
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
@@ -146,17 +153,17 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   elif proposal_type == "nis":
     proposal = base.NIS(
             K=FLAGS.K,
-            data_dim=FLAGS.latent_dim,
+            data_dim=proposal_data_dim,
             energy_hidden_sizes=[100, 100],
             dtype=tf.float32)
   elif proposal_type == "gaussian":
     proposal = tfd.MultivariateNormalDiag(
-            loc=tf.zeros([FLAGS.latent_dim], dtype=tf.float32),
-            scale_diag=tf.ones([FLAGS.latent_dim], dtype=tf.float32))
+            loc=tf.zeros([proposal_data_dim], dtype=tf.float32),
+            scale_diag=tf.ones([proposal_data_dim], dtype=tf.float32))
   elif proposal_type == "bnis":
     proposal = base.BernoulliNIS(
             K=FLAGS.K,
-            data_dim=FLAGS.latent_dim,
+            data_dim=proposal_data_dim,
             energy_hidden_sizes=[100, 100],
             q_hidden_sizes=[300, 300],
             temperature=FLAGS.gst_temperature,
@@ -208,6 +215,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             dtype=tf.float32)
   elif model_type == "his":
     model = base.HIS(
+            proposal=proposal,
             T=FLAGS.his_T,
             data_dim=data_dim,
             data_mean=mean,
