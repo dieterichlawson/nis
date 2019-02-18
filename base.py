@@ -100,7 +100,6 @@ def conditional_normal(
         squash=False,
         squash_eps=1e-4,
         bias_init=None,
-        summarize=False,
         name=None):
     raw_params = mlp(inputs,
                      hidden_sizes + [2*data_dim],
@@ -111,10 +110,9 @@ def conditional_normal(
 
     loc, raw_scale = tf.split(raw_params, 2, axis=-1)
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
-    if summarize:
-      with tf.name_scope(name):
-        tf.summary.histogram("scale", scale, family="scales")
-        tf.summary.scalar("min_scale", tf.reduce_min(scale), family="scales")
+    with tf.name_scope(name):
+      tf.summary.histogram("scale", scale, family="scales")
+      tf.summary.scalar("min_scale", tf.reduce_min(scale), family="scales")
     if bias_init is not None:
       loc = loc + bias_init
     if truncate:
@@ -198,8 +196,7 @@ class VAE(object):
           data_dim=latent_dim,
           hidden_sizes=q_hidden_sizes,
           scale_min=scale_min,
-          name="%s/q" % name,
-          summarize=True)
+          name="%s/q" % name)
     self.dtype = dtype
     if prior is None:
       self.prior = tfd.MultivariateNormalDiag(loc=tf.zeros([latent_dim], dtype=dtype),
@@ -232,7 +229,7 @@ class VAE(object):
       log_p_z = self.prior.log_prob(z)
 
     # Compute the model logprob of the data
-    p_x_given_z = self.decoder(z, summarize=True)
+    p_x_given_z = self.decoder(z)
     log_p_x_given_z = p_x_given_z.log_prob(data) #[num_samples, batch_size]
 
     elbo = (tf.reduce_logsumexp(log_p_x_given_z + self.kl_weight*(log_p_z - log_q_z), axis=0) -
@@ -241,7 +238,7 @@ class VAE(object):
 
   def sample(self, sample_shape=[1]):
     z = self.prior.sample(sample_shape)
-    p_x_given_z = self.decoder(z, summarize=True)
+    p_x_given_z = self.decoder(z)
     return tf.cast(p_x_given_z.sample(), self.dtype)
 
 class GaussianVAE(VAE):
@@ -373,21 +370,22 @@ class NIS(object):
     # Sample from the proposal and compute the weighs of the "unseen" samples.
     # We share these across the batch dimension.
     # [num_samples, K, data_size]
-    proposal_samples = self.proposal.sample([num_samples, self.K])
+    proposal_samples = self.proposal.sample([num_samples, batch_size, self.K])
     if not self.reparam_samples:
       proposal_samples = tf.stop_gradient(proposal_samples)
 
     # [num_samples, K]
     log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples - self.data_mean),
-            [num_samples, self.K])
+            [batch_size, num_samples, self.K])
     tf.summary.histogram("log_energy_proposal", log_energy_proposal)
     tf.summary.scalar("min_log_energy_proposal", tf.reduce_min(log_energy_proposal))
     tf.summary.scalar("max_log_energy_proposal", tf.reduce_max(log_energy_proposal))
     # [num_samples]
-    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1)
+    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=2)
 
     # [batch_size, num_samples]
-    tiled_proposal_lse = tf.tile(proposal_lse[tf.newaxis,:], [batch_size, 1])
+    #tiled_proposal_lse = tf.tile(proposal_lse[tf.newaxis,:], [batch_size, 1])
+    tiled_proposal_lse = proposal_lse
 
     # Compute the weights of the observed data.
     # [batch_size, 1]
