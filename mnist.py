@@ -125,7 +125,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     proposal_data_dim = 2*data_dim
   elif model_type == "nis" or model_type == "bnis":
     proposal_data_dim = data_dim
-  elif model_type == "bernolli_vae" or model_type == "gaussian_vae":
+  elif model_type == "bernoulli_vae" or model_type == "gaussian_vae":
     proposal_data_dim = FLAGS.latent_dim
 
   if proposal_type == "bernoulli_vae":
