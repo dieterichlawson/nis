@@ -22,7 +22,7 @@ tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","nis", "bnis", "his"],
                         "Model type to use.")
-tf.app.flags.DEFINE_boolean("reparam_prior", True,
+tf.app.flags.DEFINE_boolean("reparameterize_proposal", True,
                             "If true, reparameterize the samples of the prior.")
 tf.app.flags.DEFINE_boolean("squash", False,
                             "If true, squash the output of the normal prior to be between 0 and 1.")
@@ -137,7 +137,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
             kl_weight=kl_weight,
-            reparameterize_sample=FLAGS.reparam_prior,
+            reparameterize_sample=FLAGS.reparameterize_proposal,
             temperature=FLAGS.gst_temperature,
             dtype=tf.float32)
   elif proposal_type == "gaussian_vae":
@@ -200,7 +200,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             data_mean=mean,
             energy_hidden_sizes=[100, 100],
             proposal=proposal,
-            reparam_samples=FLAGS.reparam_prior,
+            reparameterize_proposal_samples=FLAGS.reparameterize_proposal,
             dtype=tf.float32)
   elif model_type == "bnis":
     model = base.BernoulliNIS(
