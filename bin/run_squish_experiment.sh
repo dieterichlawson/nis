@@ -46,7 +46,7 @@ CUDA_VISIBLE_DEVICES=$GPU python3 mnist.py \
   --decay_lr \
   --anneal_kl_step=100000 \
   --latent_dim=$LATENT_DIM \
-  --reparam_vae_prior=true \
+  --reparameterize_proposal=true \
   --squash=$SQUASH \
   --batch_size=128 \
   --max_steps=10000000 >> ${TEXT_OUTDIR}_train.out 2>&1 &
