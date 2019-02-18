@@ -371,7 +371,7 @@ class NIS(object):
     # We share these across the batch dimension.
     # [num_samples, K, data_size]
     proposal_samples = self.proposal.sample([num_samples, batch_size, self.K])
-    if not self.reparameterize_proposal_samples
+    if not self.reparameterize_proposal_samples:
       proposal_samples = tf.stop_gradient(proposal_samples)
 
     # [num_samples, K]
