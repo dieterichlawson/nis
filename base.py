@@ -87,7 +87,7 @@ def mlp(inputs,
                              units=layer_sizes[-1],
                              activation=final_activation,
                              kernel_initializer=tf.initializers.glorot_uniform,
-                             name="layer_%d" % (len(layer_sizes)+1))
+                             name="layer_%d" % len(layer_sizes))
   return output
 
 def conditional_normal(
@@ -98,8 +98,9 @@ def conditional_normal(
         scale_min=1e-5,
         truncate=False,
         squash=False,
-        squash_eps=1e-4
+        squash_eps=1e-4,
         bias_init=None,
+        summarize=False,
         name=None):
     raw_params = mlp(inputs,
                      hidden_sizes + [2*data_dim],
@@ -110,8 +111,10 @@ def conditional_normal(
 
     loc, raw_scale = tf.split(raw_params, 2, axis=-1)
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
-    tf.summary.histogram("scale", scale)
-    tf.summary.scalar("min_scale", tf.reduce_min(scale))
+    if summarize:
+      with tf.name_scope(name):
+        tf.summary.histogram("scale", scale, family="scales")
+        tf.summary.scalar("min_scale", tf.reduce_min(scale), family="scales")
     if bias_init is not None:
       loc = loc + bias_init
     if truncate:
@@ -195,7 +198,8 @@ class VAE(object):
           data_dim=latent_dim,
           hidden_sizes=q_hidden_sizes,
           scale_min=scale_min,
-          name="%s/q" % name)
+          name="%s/q" % name,
+          summarize=True)
     self.dtype = dtype
     if prior is None:
       self.prior = tfd.MultivariateNormalDiag(loc=tf.zeros([latent_dim], dtype=dtype),
@@ -228,7 +232,7 @@ class VAE(object):
       log_p_z = self.prior.log_prob(z)
 
     # Compute the model logprob of the data
-    p_x_given_z = self.decoder(z)
+    p_x_given_z = self.decoder(z, summarize=True)
     log_p_x_given_z = p_x_given_z.log_prob(data) #[num_samples, batch_size]
 
     elbo = (tf.reduce_logsumexp(log_p_x_given_z + self.kl_weight*(log_p_z - log_q_z), axis=0) -
@@ -237,7 +241,7 @@ class VAE(object):
 
   def sample(self, sample_shape=[1]):
     z = self.prior.sample(sample_shape)
-    p_x_given_z = self.decoder(z)
+    p_x_given_z = self.decoder(z, summarize=True)
     return tf.cast(p_x_given_z.sample(), self.dtype)
 
 class GaussianVAE(VAE):
