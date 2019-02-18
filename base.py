@@ -100,7 +100,6 @@ def conditional_normal(
         squash=False,
         squash_eps=1e-4,
         bias_init=None,
-        summarize=False,
         name=None):
     raw_params = mlp(inputs,
                      hidden_sizes + [2*data_dim],
@@ -111,10 +110,9 @@ def conditional_normal(
 
     loc, raw_scale = tf.split(raw_params, 2, axis=-1)
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
-    if summarize:
-      with tf.name_scope(name):
-        tf.summary.histogram("scale", scale, family="scales")
-        tf.summary.scalar("min_scale", tf.reduce_min(scale), family="scales")
+    with tf.name_scope(name):
+      tf.summary.histogram("scale", scale, family="scales")
+      tf.summary.scalar("min_scale", tf.reduce_min(scale), family="scales")
     if bias_init is not None:
       loc = loc + bias_init
     if truncate:
@@ -198,8 +196,7 @@ class VAE(object):
           data_dim=latent_dim,
           hidden_sizes=q_hidden_sizes,
           scale_min=scale_min,
-          name="%s/q" % name,
-          summarize=True)
+          name="%s/q" % name)
     self.dtype = dtype
     if prior is None:
       self.prior = tfd.MultivariateNormalDiag(loc=tf.zeros([latent_dim], dtype=dtype),
@@ -232,7 +229,7 @@ class VAE(object):
       log_p_z = self.prior.log_prob(z)
 
     # Compute the model logprob of the data
-    p_x_given_z = self.decoder(z, summarize=True)
+    p_x_given_z = self.decoder(z)
     log_p_x_given_z = p_x_given_z.log_prob(data) #[num_samples, batch_size]
 
     elbo = (tf.reduce_logsumexp(log_p_x_given_z + self.kl_weight*(log_p_z - log_q_z), axis=0) -
@@ -241,7 +238,7 @@ class VAE(object):
 
   def sample(self, sample_shape=[1]):
     z = self.prior.sample(sample_shape)
-    p_x_given_z = self.decoder(z, summarize=True)
+    p_x_given_z = self.decoder(z)
     return tf.cast(p_x_given_z.sample(), self.dtype)
 
 class GaussianVAE(VAE):
