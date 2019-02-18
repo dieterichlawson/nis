@@ -35,7 +35,7 @@ CUDA_VISIBLE_DEVICES=0 python3 mnist.py \
   --decay_lr \
   --anneal_kl_step=100000 \
   --latent_dim=$LATENT_DIM \
-  --reparam_vae_prior=false \
+  --reparameterize_proposal=false \
   --batch_size=128 \
   --max_steps=10000000 >> ${TEXT_OUTDIR}_train.out 2>&1 &
 

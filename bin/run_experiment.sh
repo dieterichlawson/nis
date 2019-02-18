@@ -9,7 +9,7 @@ MODEL=nis
 LATENT_DIM=50
 LOGDIR=/tmp/experiments
 GPU=0
-REPARAM_VAE_PRIOR="false"
+REPARAM_PROPOSAL="false"
 NAME_SUFFIX=""
 
 print_usage(){
@@ -25,14 +25,14 @@ while getopts 'd:p:m:l:g:n:rh' flag; do
     n) NAME_SUFFIX="${OPTARG}" ;;
     l) LOGDIR="${OPTARG}" ;;
     g) GPU="${OPTARG}" ;;
-    r) REPARAM_VAE_PRIOR="true" ;;
+    r) REPARAM_PROPOSAL="true" ;;
     *) print_usage
       exit 1 ;;
   esac
 done
 
 if [ "${PROPOSAL}" = "bernoulli_vae" ]; then
-  if [ "${REPARAM_VAE_PRIOR}" = "true" ]; then
+  if [ "${REPARAM_PROPOSAL}" = "true" ]; then
     NAME=${PROPOSAL}_proposal_${MODEL}_model_with_prior_grads
   else
     NAME=${PROPOSAL}_proposal_${MODEL}_model_no_prior_grads
@@ -55,7 +55,7 @@ CUDA_VISIBLE_DEVICES=$GPU python3 mnist.py \
   --decay_lr \
   --anneal_kl_step=100000 \
   --latent_dim=$LATENT_DIM \
-  --reparam_vae_prior=$REPARAM_VAE_PRIOR \
+  --reparameterize_proposal=$REPARAM_PROPOSAL \
   --batch_size=128 \
   --max_steps=10000000 >> ${TEXT_OUTDIR}_train.out 2>&1 &
 

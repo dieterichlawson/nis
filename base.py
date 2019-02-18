@@ -140,7 +140,7 @@ def conditional_bernoulli(
         hidden_activation=tf.math.tanh,
         bias_init=None,
         dtype=tf.int32,
-        reparameterize_gst=False,
+        use_gst=False,
         temperature=None,
         name=None):
     bern_logits = mlp(inputs,
@@ -151,11 +151,11 @@ def conditional_bernoulli(
     if bias_init is not None:
       bern_logits = bern_logits -tf.log(1. / tf.clip_by_value(bias_init, 0.0001, 0.9999) - 1)
 
-    if reparameterize_gst:
+    if use_gst:
       assert temperature is not None
       base_dist =  GSTBernoulli(temperature, logits=bern_logits, dtype=dtype)
     else:
-      base_dist = Bernoulli(logits=bern_logits, dtype=dtype)
+      base_dist = tfd.Bernoulli(logits=bern_logits, dtype=dtype)
     return tfd.Independent(base_dist, reinterpreted_batch_ndims=1)
 
 class VAE(object):
@@ -302,7 +302,7 @@ class BernoulliVAE(VAE):
           hidden_sizes=decoder_hidden_sizes,
           bias_init=data_mean,
           dtype=dtype,
-          reparameterize_gst=reparameterize_sample,
+          use_gst=reparameterize_sample,
           temperature=temperature,
           name="%s/decoder" % name)
 
@@ -326,7 +326,7 @@ class NIS(object):
                energy_hidden_sizes,
                proposal=None,
                data_mean=None,
-               reparam_samples=True,
+               reparameterize_proposal_samples=True,
                dtype=tf.float32,
                name="nis"):
     """Creates a NIS model.
@@ -341,7 +341,7 @@ class NIS(object):
         log probability. If not supplied, then defaults to Gaussian.
     """
     self.data_dim = data_dim
-    self.reparam_samples = reparam_samples
+    self.reparameterize_proposal_samples = reparameterize_proposal_samples
     if data_mean is not None:
       self.data_mean = data_mean
     else:
@@ -371,7 +371,7 @@ class NIS(object):
     # We share these across the batch dimension.
     # [num_samples, K, data_size]
     proposal_samples = self.proposal.sample([num_samples, self.K])
-    if not self.reparam_samples:
+    if not self.reparameterize_proposal_samples
       proposal_samples = tf.stop_gradient(proposal_samples)
 
     # [num_samples, K]
@@ -441,7 +441,7 @@ class BernoulliNIS(NIS):
             hidden_sizes=q_hidden_sizes,
             bias_init=data_mean,
             dtype=dtype,
-            reparameterize_gst=True,
+            use_gst=True,
             temperature=temperature,
             name="%s/q" % name)
     super().__init__(
