@@ -215,12 +215,12 @@ class VAE(object):
     return log_prob
 
   def _log_prob(self, data, num_samples=1):
-    mean_centered_data = data - self.data_mean
+    #mean_centered_data = data - self.data_mean
     batch_size = tf.shape(data)[0]
     data_dim = data.get_shape().as_list()[1]
 
     # Construct approximate posterior and sample z.
-    q_z = self.q(mean_centered_data)
+    q_z = self.q(data)
     z = q_z.sample(sample_shape=[num_samples]) #[num_samples, batch_size, data_dim]
     log_q_z = q_z.log_prob(z) #[num_samples, batch_size]
 
@@ -378,8 +378,10 @@ class NIS(object):
       proposal_samples = tf.stop_gradient(proposal_samples)
 
     # [num_samples, K]
-    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples - self.data_mean),
-            [num_samples, self.K])
+    #log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples - self.data_mean),
+    #        [num_samples, self.K])
+    log_energy_proposal = tf.reshape(self.energy_fn(proposal_samples), [num_samples, self.K])
+
     tf.summary.histogram("log_energy_proposal", log_energy_proposal)
     tf.summary.scalar("min_log_energy_proposal", tf.reduce_min(log_energy_proposal))
     tf.summary.scalar("max_log_energy_proposal", tf.reduce_max(log_energy_proposal))
@@ -391,7 +393,8 @@ class NIS(object):
 
     # Compute the weights of the observed data.
     # [batch_size, 1]
-    log_energy_data = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
+    #log_energy_data = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
+    log_energy_data = tf.reshape(self.energy_fn(data), [batch_size])
     tf.summary.histogram("log_energy_data", log_energy_data)
     tf.summary.scalar("min_log_energy_data", tf.reduce_min(log_energy_data))
     tf.summary.scalar("max_log_energy_data", tf.reduce_max(log_energy_data))
@@ -419,8 +422,9 @@ class NIS(object):
   def sample(self, sample_shape=[1]):
     shape = sample_shape + [self.K]
     proposal_samples = self.proposal.sample(shape) #[sample_shape, K, data_dim]
-    log_energy = tf.reshape(
-            self.energy_fn(proposal_samples - self.data_mean), shape) #[sample_shape, K]
+    #log_energy = tf.reshape(
+    #        self.energy_fn(proposal_samples - self.data_mean), shape) #[sample_shape, K]
+    log_energy = tf.reshape(self.energy_fn(proposal_samples), shape) #[sample_shape, K]
     indexes = tfd.Categorical(logits=log_energy).sample() #[sample_shape]
     #[sample_shape, data_dim]
     samples = tf.batch_gather(proposal_samples, tf.expand_dims(indexes, axis=-1))
@@ -460,17 +464,19 @@ class BernoulliNIS(NIS):
     batch_size = tf.shape(data)[0]
     # Compute log weights for observed data
     # [batch_size]
-    log_weights_data = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
+    #log_weights_data = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
+    log_weights_data = tf.reshape(self.energy_fn(data), [batch_size])
 
     # Sample the latent z's from the inference network
-    q = self.q_fn(data - self.data_mean)
+    #q = self.q_fn(data - self.data_mean)
+    q = self.q_fn(data)
     # [num_samples, K, batch_size, data_size]
     z_samples = q.sample([num_samples, self.K])
 
     # [num_samples, K, batch_size, data_size]
-    x = z_samples - self.data_mean
+    #x = z_samples - self.data_mean
     # [num_samples, K, batch_size]
-    log_weight_z_samples = tf.reshape(self.energy_fn(x),
+    log_weight_z_samples = tf.reshape(self.energy_fn(z_samples),
             [num_samples, self.K, batch_size])
     # [num_samples, batch_size]
     log_sum_z_weights = tf.reduce_logsumexp(log_weight_z_samples, axis=1)
