@@ -21,29 +21,30 @@ def get_nine_gaussians(batch_size, scale=0.1, spacing=1.0):
   batch = dist.sample(batch_size)
   return batch
 
+TINY_MNIST_PATH="data/tiny_mnist"
 MNIST_PATH="data/mnist"
 STATIC_BINARIZED_MNIST_PATH = "data/static_binarized_mnist"
 
 def get_raw_mnist(batch_size, split="train", repeat=True, shuffle=True, initializable=False):
-  return _get_mnist(batch_size, split=split, binarized=None, 
+  return _get_mnist(MNIST_PATH, batch_size, split=split, binarized=None, 
+          repeat=repeat, shuffle=shuffle, initializable=initializable)
+
+def get_tiny_mnist(batch_size, split="train", repeat=True, shuffle=True, initializable=False,
+        binarized=None):
+  return _get_mnist(TINY_MNIST_PATH, batch_size, split=split, binarized=binarized, 
           repeat=repeat, shuffle=shuffle, initializable=initializable)
 
 def get_dynamic_mnist(batch_size, split="train", repeat=True, shuffle=True, initializable=False):
-  return _get_mnist(batch_size, split=split, binarized="dynamic", 
+  return _get_mnist(MNIST_PATH, batch_size, split=split, binarized="dynamic", 
           repeat=repeat, shuffle=shuffle, initializable=initializable)
 
 def get_static_mnist(batch_size, split="train", repeat=True, shuffle=True, initializable=False):
-  return _get_mnist(batch_size, split=split, binarized="static", 
+  return _get_mnist(STATIC_BINARIZED_MNIST_PATH, batch_size, split=split, binarized="static", 
           repeat=repeat, shuffle=shuffle, initializable=initializable)
 
 
-def _get_mnist(batch_size, split="train", binarized=None, repeat=True, shuffle=True,
+def _get_mnist(data_dir, batch_size, split="train", binarized=None, repeat=True, shuffle=True,
         initializable=False):
-  if binarized == "static":
-    data_dir = STATIC_BINARIZED_MNIST_PATH
-  elif binarized == "dynamic" or binarized == None:
-    data_dir = MNIST_PATH
-
   path = os.path.join(data_dir, split + ".npy")
   np_ims = np.load(path)
   # Always load the train mean, no matter what split.
