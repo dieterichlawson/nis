@@ -4,7 +4,7 @@ tfd = tfp.distributions
 import numpy as np
 import functools
 import tfmpl
-import base
+from models import his
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -261,10 +261,10 @@ def make_his_graph(batch_size=16,
                    dtype=tf.float32):
   target_dist = mixture_of_nine()
   data = target_dist.sample(batch_size)
-  model = base.HIS(T,
-                   data_dim=2,
-                   energy_hidden_sizes=mlp_layers,
-                   q_hidden_sizes=mlp_layers)
+  model = his.HIS(T,
+                  data_dim=2,
+                  energy_hidden_sizes=mlp_layers,
+                  q_hidden_sizes=mlp_layers)
   elbo = model.log_prob(data)
   elbo = tf.reduce_mean(elbo)
   tf.summary.scalar("lower_bound", elbo)

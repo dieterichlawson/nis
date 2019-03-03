@@ -7,7 +7,7 @@ import numpy as np
 import functools
 import tfmpl
 import datasets
-import base
+from models import *
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -129,7 +129,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     proposal_data_dim = FLAGS.latent_dim
 
   if proposal_type == "bernoulli_vae":
-    proposal = base.BernoulliVAE(
+    proposal = vae.BernoulliVAE(
             latent_dim=FLAGS.latent_dim,
             data_dim=proposal_data_dim,
             data_mean=mean,
@@ -141,7 +141,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             temperature=FLAGS.gst_temperature,
             dtype=tf.float32)
   elif proposal_type == "gaussian_vae":
-    proposal = base.GaussianVAE(
+    proposal = vae.GaussianVAE(
             latent_dim=FLAGS.latent_dim,
             data_dim=proposal_data_dim,
             decoder_hidden_sizes=[300, 300],
@@ -151,7 +151,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             squash=FLAGS.squash,
             dtype=tf.float32)
   elif proposal_type == "nis":
-    proposal = base.NIS(
+    proposal = nis.NIS(
             K=FLAGS.K,
             data_dim=proposal_data_dim,
             energy_hidden_sizes=[100, 100],
@@ -161,7 +161,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             loc=tf.zeros([proposal_data_dim], dtype=tf.float32),
             scale_diag=tf.ones([proposal_data_dim], dtype=tf.float32))
   elif proposal_type == "bnis":
-    proposal = base.BernoulliNIS(
+    proposal = nis.BernoulliNIS(
             K=FLAGS.K,
             data_dim=proposal_data_dim,
             energy_hidden_sizes=[100, 100],
@@ -171,7 +171,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
 
 
   if model_type == "bernoulli_vae":
-    model = base.BernoulliVAE(
+    model = vae.BernoulliVAE(
             latent_dim=FLAGS.latent_dim,
             data_dim=data_dim,
             data_mean=mean,
@@ -183,7 +183,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             reparameterize_sample=False,
             dtype=tf.float32)
   elif model_type == "gaussian_vae":
-    model = base.GaussianVAE(
+    model = vae.GaussianVAE(
             latent_dim=FLAGS.latent_dim,
             data_dim=data_dim,
             data_mean=mean,
@@ -194,7 +194,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             kl_weight=kl_weight,
             dtype=tf.float32)
   elif model_type == "nis":
-    model = base.NIS(
+    model = nis.NIS(
             K=FLAGS.K,
             data_dim=data_dim,
             data_mean=mean,
@@ -203,7 +203,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             reparameterize_proposal_samples=FLAGS.reparameterize_proposal,
             dtype=tf.float32)
   elif model_type == "bnis":
-    model = base.BernoulliNIS(
+    model = nis.BernoulliNIS(
             K=FLAGS.K,
             data_dim=data_dim,
             data_mean=mean,
@@ -213,7 +213,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             temperature=FLAGS.gst_temperature,
             dtype=tf.float32)
   elif model_type == "his":
-    model = base.HIS(
+    model = his.HIS(
             proposal=proposal,
             T=FLAGS.his_T,
             data_dim=data_dim,
