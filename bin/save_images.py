@@ -24,7 +24,6 @@ def save_images_from_event(logdir, tag, output_dir):
                   if v.tag == tag:
                       im = im_tf.eval({image_str: v.image.encoded_image_string})
                       output_fn = os.path.realpath('{}/image_{:010d}.png'.format(output_dir, e.step))
-                      print("Saving '{}'".format(output_fn))
                       imageio.imwrite(output_fn, im)
 
 def main(unused_argv):
