@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow_probability as tfp
 tfd = tfp.distributions
 import functools
+from . import base
 
 def _expand_to_ta(x, length):
   x = tf.convert_to_tensor(x)
@@ -116,12 +117,12 @@ class HIS(object):
       self.data_mean = tf.zeros((), dtype=dtype)
     self.T = T
     self.energy_fn = functools.partial(
-          mlp,
+          base.mlp,
           layer_sizes=energy_hidden_sizes + [1],
           final_activation=None,
           name="%s/energy_fn_mlp" % name)
     self.q = functools.partial(
-          conditional_normal,
+          base.conditional_normal,
           data_dim=data_dim,
           hidden_sizes=q_hidden_sizes,
           scale_min=scale_min,

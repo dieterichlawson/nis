@@ -1,8 +1,12 @@
-import tensorflow as tf
+
+import functools
 import numpy as np
+
+import tensorflow as tf
 import tensorflow_probability as tfp
 tfd = tfp.distributions
-import functools
+
+from . import base
 
 class NIS(object):
 
@@ -34,7 +38,7 @@ class NIS(object):
       self.data_mean = tf.zeros((), dtype=dtype)
     self.K = K
     self.energy_fn = functools.partial(
-          mlp,
+          base.mlp,
           layer_sizes=energy_hidden_sizes + [1],
           final_activation=None,
           name="%s/energy_fn_mlp" % name)
