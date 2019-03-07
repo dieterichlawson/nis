@@ -183,8 +183,8 @@ def make_lars_loss(target_dist,
   log_q_z_r = target_dist.log_prob(z_r) # [batch_size]
 
   tf.summary.histogram("log_energy_data", log_a_z_r)
-  tf.summary.histogram("min_log_energy_data", tf.reduce_min(log_a_z_r))
-  tf.summary.histogram("max_log_energy_data", tf.reduce_max(log_a_z_r))
+  tf.summary.scalar("min_log_energy_data", tf.reduce_min(log_a_z_r))
+  tf.summary.scalar("max_log_energy_data", tf.reduce_max(log_a_z_r))
 
   # Sample zs from proposal to estimate Z
   z_s = proposal.sample(Z_batch_size) # [Z_batch_size, 2]
@@ -193,8 +193,8 @@ def make_lars_loss(target_dist,
   log_ZS = tf.reduce_logsumexp(log_a_z_s) # []
 
   tf.summary.histogram("log_energy_proposal", log_a_z_s)
-  tf.summary.histogram("min_log_energy_proposal", tf.reduce_min(log_a_z_s))
-  tf.summary.histogram("max_log_energy_proposal", tf.reduce_max(log_a_z_s))
+  tf.summary.scalar("min_log_energy_proposal", tf.reduce_min(log_a_z_s))
+  tf.summary.scalar("max_log_energy_proposal", tf.reduce_max(log_a_z_s))
   
   # Compute estimate of log Z using importance-weighted samples from minibatch
   iw_log_a_z_r = tf.stop_gradient(log_pi_z_r - log_q_z_r) + log_a_z_r 
