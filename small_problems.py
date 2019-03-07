@@ -171,22 +171,30 @@ def make_lars_loss(target_dist,
   # Sample from target dist (multi-modal Gaussian)
   z_r = target_dist.sample(batch_size)
   
-  # Compute log a(z), log pi(z), and log q(z)
-  log_a_z_r = tf.reshape(mlp(z_r, accept_fn_layers, name="a"), [batch_size]) # [batch_size]
-  log_pi_z_r = proposal.log_prob(z_r) # [batch_size]
-  log_q_z_r = target_dist.log_prob(z_r) # [batch_size]
-
-  # Sample zs from proposal to estimate Z
-  z_s = proposal.sample(Z_batch_size) # [Z_batch_size, 2]
-  # Compute log a(z) for zs sampled from proposal
   mlp_fn = functools.partial(
              mlp,
              layer_sizes=accept_fn_layers + [1],
              final_activation=tf.math.log_sigmoid,
              name="a")
+
+  # Compute log a(z), log pi(z), and log q(z)
+  log_a_z_r = tf.reshape(mlp_fn(z_r), [batch_size]) # [batch_size]
+  log_pi_z_r = proposal.log_prob(z_r) # [batch_size]
+  log_q_z_r = target_dist.log_prob(z_r) # [batch_size]
+
+  tf.summary.histogram("log_energy_data", log_a_z_r)
+  tf.summary.histogram("min_log_energy_data", tf.reduce_min(log_a_z_r))
+  tf.summary.histogram("max_log_energy_data", tf.reduce_max(log_a_z_r))
+
+  # Sample zs from proposal to estimate Z
+  z_s = proposal.sample(Z_batch_size) # [Z_batch_size, 2]
+  # Compute log a(z) for zs sampled from proposal
   log_a_z_s = tf.reshape(mlp_fn(z_s), [Z_batch_size]) # [Z_batch_size]
-  #log_Z = reduce_logavgexp(log_a_z_s) # []
   log_ZS = tf.reduce_logsumexp(log_a_z_s) # []
+
+  tf.summary.histogram("log_energy_proposal", log_a_z_s)
+  tf.summary.histogram("min_log_energy_proposal", tf.reduce_min(log_a_z_s))
+  tf.summary.histogram("max_log_energy_proposal", tf.reduce_max(log_a_z_s))
   
   # Compute estimate of log Z using importance-weighted samples from minibatch
   iw_log_a_z_r = tf.stop_gradient(log_pi_z_r - log_q_z_r) + log_a_z_r 
