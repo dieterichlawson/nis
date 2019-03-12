@@ -20,6 +20,8 @@ TARGET_DISTS = [NINE_GAUSSIANS_DIST, TWO_RINGS_DIST, CHECKERBOARD_DIST]
 tf.logging.set_verbosity(tf.logging.INFO)
 tf.app.flags.DEFINE_enum("algo", "lars", ["lars","nis", "his"],
                          "The algorithm to run.")
+tf.app.flags.DEFINE_boolean("lars_allow_eval_target", False,
+                            "Whether LARS is allowed to evaluate the target density.")
 tf.app.flags.DEFINE_enum("target", NINE_GAUSSIANS_DIST,  TARGET_DISTS,
                          "Distribution to draw data from.")
 tf.app.flags.DEFINE_string("energy_fn_sizes", "20,20",
@@ -195,13 +197,16 @@ def make_lars_loss(target_dist,
   tf.summary.histogram("log_energy_proposal", log_a_z_s)
   tf.summary.scalar("min_log_energy_proposal", tf.reduce_min(log_a_z_s))
   tf.summary.scalar("max_log_energy_proposal", tf.reduce_max(log_a_z_s))
-  
-  # Compute estimate of log Z using importance-weighted samples from minibatch
-  iw_log_a_z_r = tf.stop_gradient(log_pi_z_r - log_q_z_r) + log_a_z_r 
-  log_Z_curr = tf.reduce_logsumexp([tf.ones_like(iw_log_a_z_r)*log_ZS, iw_log_a_z_r], axis=0)
-  log_Z_curr -= tf.log(tf.to_float(Z_batch_size+1))
-  
-  log_Z_curr_avg = reduce_logavgexp(log_Z_curr, axis=0) #[]
+
+  if FLAGS.lars_allow_eval_target:
+    log_q_z_r = target_dist.log_prob(z_r) #[batch_size]
+    # Compute estimate of log Z using importance-weighted samples from minibatch
+    iw_log_a_z_r = tf.stop_gradient(log_pi_z_r - log_q_z_r) + log_a_z_r 
+    log_Z_curr = tf.reduce_logsumexp([tf.ones_like(iw_log_a_z_r)*log_ZS, iw_log_a_z_r], axis=0)
+    log_Z_curr -= tf.log(tf.to_float(Z_batch_size+1))
+    log_Z_curr_avg = reduce_logavgexp(log_Z_curr, axis=0) #[]
+  else:
+    log_Z_curr_avg = log_ZS - tf.log(tf.to_float(Z_batch_size))
   
   # Set up EMA of log_Z
   log_Z_ema = tf.train.ExponentialMovingAverage(decay=log_Z_ema_decay)
@@ -214,7 +219,7 @@ def make_lars_loss(target_dist,
   
   loss = -(log_pi_z_r + log_a_z_r - log_Z[tf.newaxis]) # [batch_size]
 
-  tf.summary.scalar("log Z ema", log_Z_ema.average(log_Z_curr_avg_sg))
+  tf.summary.scalar("log_Z_ema", log_Z_ema.average(log_Z_curr_avg_sg))
   return tf.reduce_mean(loss), maintain_log_Z_ema_op, mlp_fn
 
 def make_lars_graph(target_dist,
