@@ -7,6 +7,7 @@ DATASET="static_mnist"
 LOGDIR=/tmp/experiments/static_mnist
 NAME_SUFFIX=""
 D="$(dirname "$0")"
+NIS_K=128
 
 # Standard VAE w/ Gaussian prior
 sh $D/run_experiment.sh -d ${DATASET} \
@@ -19,6 +20,7 @@ sh $D/run_experiment.sh -d ${DATASET} \
 sh $D/run_experiment.sh -d ${DATASET} \
                         -p "nis" \
                         -m "bernoulli_vae" \
+                        -k ${NIS_K} \
                         -l ${LOGDIR} \
                         -g 1 &
 
@@ -26,6 +28,7 @@ sh $D/run_experiment.sh -d ${DATASET} \
 sh $D/run_experiment.sh -d ${DATASET} \
                         -p "bernoulli_vae" \
                         -m "nis" \
+                        -k ${NIS_K} \
                         -l ${LOGDIR} \
                         -g 2 &
 
@@ -33,6 +36,7 @@ sh $D/run_experiment.sh -d ${DATASET} \
 sh $D/run_experiment.sh -d ${DATASET} \
                         -p "bernoulli_vae" \
                         -m "nis" \
+                        -k ${NIS_K} \
                         -l ${LOGDIR} \
                         -g 3 \
                         -r &

@@ -7,17 +7,18 @@ DATASET=static_mnist
 PROPOSAL=bernoulli_vae
 MODEL=nis
 LATENT_DIM=50
+NIS_K=128
 LOGDIR=/tmp/experiments
-GPU=0
+GPU=''
 REPARAM_PROPOSAL="false"
 NAME_SUFFIX=""
 
 print_usage(){
-  printf "run_experiment -d <dataset> -p <proposal> -m <model> -l <logdir>  -g <gpu> -r -n <name
+  printf "run_experiment -d <dataset> -p <proposal> -m <model> -l <logdir>  -g <gpu> -k <nis_k> -r -n <name
   suffix>\n"
 }
 
-while getopts 'd:p:m:l:g:n:rh' flag; do
+while getopts 'd:p:m:l:g:n:k:rh' flag; do
   case "${flag}" in 
     d) DATASET="${OPTARG}" ;;
     p) PROPOSAL="${OPTARG}" ;;
@@ -25,6 +26,7 @@ while getopts 'd:p:m:l:g:n:rh' flag; do
     n) NAME_SUFFIX="${OPTARG}" ;;
     l) LOGDIR="${OPTARG}" ;;
     g) GPU="${OPTARG}" ;;
+    k) NIS_K="${OPTARG}" ;;
     r) REPARAM_PROPOSAL="true" ;;
     *) print_usage
       exit 1 ;;
@@ -42,30 +44,32 @@ else
 fi
 
 NAME=${NAME}${NAME_SUFFIX}
-LOGDIR=$LOGDIR/$DATASET/$NAME
-TEXT_OUTDIR=logdir/$NAME
+LOGDIR=${LOGDIR}/${DATASET}/${NAME}
+TEXT_OUTDIR=logdir/${NAME}
 
-CUDA_VISIBLE_DEVICES=$GPU python3 mnist.py \
-  --logdir=$LOGDIR  \
-  --dataset=$DATASET \
-  --proposal=$PROPOSAL \
-  --model=$MODEL \
+CUDA_VISIBLE_DEVICES=${GPU} python3 mnist.py \
+  --logdir=${LOGDIR}  \
+  --dataset=${DATASET} \
+  --proposal=${PROPOSAL} \
+  --model=${MODEL} \
+  --K=${NIS_K} \
   --mode=train \
   --learning_rate=3e-4 \
   --decay_lr \
   --anneal_kl_step=100000 \
-  --latent_dim=$LATENT_DIM \
-  --reparameterize_proposal=$REPARAM_PROPOSAL \
+  --latent_dim=${LATENT_DIM} \
+  --reparameterize_proposal=${REPARAM_PROPOSAL} \
   --batch_size=128 \
   --max_steps=10000000 >> ${TEXT_OUTDIR}_train.out 2>&1 &
 
-CUDA_VISIBLE_DEVICES=$GPU python3 mnist.py \
-  --logdir=$LOGDIR \
-  --dataset=$DATASET \
-  --proposal=$PROPOSAL \
-  --model=$MODEL \
+CUDA_VISIBLE_DEVICES=${GPU} python3 mnist.py \
+  --logdir=${LOGDIR} \
+  --dataset=${DATASET} \
+  --proposal=${PROPOSAL} \
+  --model=${MODEL} \
+  --K=${NIS_K} \
   --mode=eval \
-  --latent_dim=$LATENT_DIM \
+  --latent_dim=${LATENT_DIM} \
   --batch_size=32 \
   --max_steps=10000000 \
   --split=train,valid,test \
