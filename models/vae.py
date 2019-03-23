@@ -4,6 +4,8 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 import functools
 
+from . import base
+
 class VAE(object):
   """Variational autoencoder with continuous latent space."""
 
@@ -38,7 +40,7 @@ class VAE(object):
     self.decoder = decoder
     self.kl_weight = kl_weight
     self.q = functools.partial(
-          conditional_normal,
+          base.conditional_normal,
           data_dim=latent_dim,
           hidden_sizes=q_hidden_sizes,
           scale_min=scale_min,
@@ -85,7 +87,7 @@ class VAE(object):
   def sample(self, sample_shape=[1]):
     z = self.prior.sample(sample_shape)
     p_x_given_z = self.decoder(z)
-    return tf.cast(p_x_given_z.loc, self.dtype)
+    return tf.cast(p_x_given_z.sample(), self.dtype)
 
 class GaussianVAE(VAE):
   """VAE with Gaussian generative distribution."""
@@ -104,7 +106,7 @@ class GaussianVAE(VAE):
                name="gaussian_vae"):
     # Make the decoder with a Gaussian distribution
     decoder_fn = functools.partial(
-            conditional_normal,
+            base.conditional_normal,
             data_dim=data_dim,
             hidden_sizes=decoder_hidden_sizes,
             scale_min=scale_min,
@@ -143,7 +145,7 @@ class BernoulliVAE(VAE):
                name="bernoulli_vae"):
     # Make the decoder with a Gaussian distribution
     decoder_fn = functools.partial(
-          conditional_bernoulli,
+          base.conditional_bernoulli,
           data_dim=data_dim,
           hidden_sizes=decoder_hidden_sizes,
           bias_init=data_mean,
