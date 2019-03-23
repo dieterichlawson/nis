@@ -24,6 +24,8 @@ tf.app.flags.DEFINE_boolean("lars_allow_eval_target", False,
                             "Whether LARS is allowed to evaluate the target density.")
 tf.app.flags.DEFINE_enum("target", NINE_GAUSSIANS_DIST,  TARGET_DISTS,
                          "Distribution to draw data from.")
+tf.app.flags.DEFINE_float("nine_gaussians_variance", 0.1,
+                          "Variance for the mixture components in the nine gaussians.")
 tf.app.flags.DEFINE_string("energy_fn_sizes", "20,20",
                            "List of hidden layer sizes for energy function as as comma "
                             "separated list.")
@@ -127,13 +129,13 @@ def checkerboard_dist(num_splits=4):
     cat=tfd.Categorical(probs=[1.]*len(uniforms)),
     components=uniforms)
 
-def nine_gaussians_dist(scale=0.1):
+def nine_gaussians_dist(variance=0.1):
   """Creates a mixture of 9 2-D gaussians on a 3x3 grid centered at 0."""
   components = []
   for i in [-1., 0. , 1.]:
     for j in [-1., 0. , 1.]:
       loc = tf.constant([i,j], dtype=tf.float32)
-      scale = tf.ones_like(loc)*scale
+      scale = tf.ones_like(loc)*tf.sqrt(variance)
       components.append(tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale))
   return tfd.Mixture(
     cat=tfd.Categorical(probs=tf.ones([9], dtype=tf.float32)/9.),
@@ -141,7 +143,7 @@ def nine_gaussians_dist(scale=0.1):
 
 def get_target_distribution(name):
   if name == NINE_GAUSSIANS_DIST:
-    return nine_gaussians_dist()
+    return nine_gaussians_dist(variance=FLAGS.nine_gaussians_variance)
   elif name == TWO_RINGS_DIST:
     return two_rings_dist()
   elif name == CHECKERBOARD_DIST:
