@@ -58,7 +58,7 @@ tf.app.flags.DEFINE_string("split", "train",
                            "The dataset split to train on.")
 tf.app.flags.DEFINE_string("logdir", "/tmp/nis",
                             "Directory for summaries and checkpoints.")
-tf.app.flags.DEFINE_integer("max_steps", int(1e6),
+tf.app.flags.DEFINE_integer("max_steps", int(1e7),
                             "The number of steps to run training for.")
 tf.app.flags.DEFINE_integer("summarize_every", int(1e3),
                             "The number of steps between each evaluation.")
