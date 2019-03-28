@@ -245,7 +245,13 @@ def make_lars_graph(target_dist,
   with tf.control_dependencies([ema_op, eval_ema_op]):
     apply_grads_op = opt.apply_gradients(grads, global_step=global_step)
   # Create summaries.
-  density_image_summary(mlp=lambda x: tf.exp(mlp(x)), 
+
+  def f(x):
+    e = mlp(x)
+    e -= tf.reduce_min(e)
+    return tf.exp(e)
+
+  density_image_summary(mlp=f, 
                         num_points=FLAGS.density_num_points, 
                         dtype=dtype)
   tf.summary.scalar("elbo", -loss)
@@ -310,7 +316,12 @@ def make_nis_graph(target_dist,
   tf.summary.scalar("elbo", train_elbo)
   tf.summary.scalar("eval_elbo", eval_elbo, collections=["infrequent_summaries"])
 
-  density_image_summary(mlp=lambda x: tf.exp(model.energy_fn(x)),
+  def f(x):
+    e = model.energy_fn(x)
+    e -= tf.reduce_min(e)
+    return tf.exp(e)
+
+  density_image_summary(mlp=f,
                         num_points=FLAGS.density_num_points)
   
   global_step = tf.train.get_or_create_global_step()
