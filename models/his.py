@@ -130,7 +130,8 @@ class HIS(object):
           truncate=False,
           squash=False,
           name="%s/q" % name)
-    init_alpha = -np.log(1./init_alpha - 1.)
+    eps = 0.0001
+    init_alpha = -np.log(1./init_alpha - 1. + eps)
     with tf.name_scope(name):
       self.raw_alphas = tf.get_variable(name="raw_alpha",
                                         shape=[T],

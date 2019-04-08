@@ -33,6 +33,12 @@ tf.app.flags.DEFINE_integer("his_t", 25,
                             "Number of steps for hamiltonian importance sampling.")
 tf.app.flags.DEFINE_float("his_stepsize", 1e-2, 
                             "Stepsize for hamiltonian importance sampling.")
+tf.app.flags.DEFINE_float("his_alpha", 0.995, 
+                            "Alpha for hamiltonian importance sampling.")
+tf.app.flags.DEFINE_boolean("his_learn_stepsize", False,
+                            "Allow HIS to learn the stepsize")
+tf.app.flags.DEFINE_boolean("his_learn_alpha", False,
+                            "Allow HIS to learn alpha.")
 tf.app.flags.DEFINE_float("learning_rate", 1e-4,
                            "The learning rate to use for ADAM or SGD.")
 tf.app.flags.DEFINE_integer("batch_size", 4,
@@ -370,7 +376,10 @@ def make_his_graph(target_dist,
                    batch_size=16,
                    eval_batch_size=1000,
                    T=100,
-                   step_size=1e-2,
+                   stepsize=1e-2,
+                   alpha=0.995,
+                   learn_stepsize=False,
+                   learn_alpha=False,
                    lr=1e-4,
                    mlp_layers=[10,10],
                    dtype=tf.float32):
@@ -379,7 +388,10 @@ def make_his_graph(target_dist,
   model = his.HIS(T,
                   data_dim=2,
                   energy_hidden_sizes=mlp_layers,
-                  init_step_size=step_size,
+                  init_step_size=stepsize,
+                  learn_stepsize=learn_stepsize,
+                  init_alpha=alpha,
+                  learn_temps=learn_alpha,
                   q_hidden_sizes=mlp_layers)
   elbo = model.log_prob(data)
   elbo = tf.reduce_mean(elbo)
@@ -442,7 +454,10 @@ def main(unused_argv):
         batch_size=FLAGS.batch_size,
         eval_batch_size=FLAGS.eval_batch_size,
         T=FLAGS.his_t,
-        step_size=FLAGS.his_stepsize,
+        stepsize=FLAGS.his_stepsize,
+        alpha=FLAGS.his_alpha,
+        learn_stepsize=FLAGS.his_learn_stepsize,
+        learn_alpha=FLAGS.his_learn_alpha,
         lr=FLAGS.learning_rate,
         mlp_layers=energy_fn_layers,
         dtype=tf.float32)
