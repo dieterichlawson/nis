@@ -6,6 +6,8 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 tfd = tfp.distributions
 
+import pdb
+
 def get_nine_gaussians(batch_size, scale=0.1, spacing=1.0):
   """Creates a mixture of 9 2-D gaussians on a 3x3 grid centered at 0."""
   components = []
@@ -29,6 +31,10 @@ def get_raw_mnist(batch_size, split="train", repeat=True, shuffle=True, initiali
   return _get_mnist(MNIST_PATH, batch_size, split=split, binarized=None, 
           repeat=repeat, shuffle=shuffle, initializable=initializable)
 
+def get_jittered_mnist(batch_size, split="train", repeat=True, shuffle=True, initializable=False):
+  return _get_mnist(MNIST_PATH, batch_size, split=split, binarized=None,
+          repeat=repeat, shuffle=shuffle, initializable=initializable, jitter=True)
+
 def get_tiny_mnist(batch_size, split="train", repeat=True, shuffle=True, initializable=False,
         binarized=None):
   return _get_mnist(TINY_MNIST_PATH, batch_size, split=split, binarized=binarized, 
@@ -44,7 +50,7 @@ def get_static_mnist(batch_size, split="train", repeat=True, shuffle=True, initi
 
 
 def _get_mnist(data_dir, batch_size, split="train", binarized=None, repeat=True, shuffle=True,
-        initializable=False):
+        initializable=False, jitter=False):
   path = os.path.join(data_dir, split + ".npy")
   np_ims = np.load(path)
   # Always load the train mean, no matter what split.
@@ -53,7 +59,16 @@ def _get_mnist(data_dir, batch_size, split="train", binarized=None, repeat=True,
 
   if binarized == "dynamic":
     dataset = dataset.map(lambda im: tfd.Bernoulli(probs=im).sample())
-      
+  elif jitter:
+    # Add uniform dequantization jitter
+    def jitter_im(im, alpha):
+      jitter_noise = tfd.Uniform(low=tf.zeros_like(im), high=tf.ones_like(im)).sample()
+      jittered_im = (im * 255. + jitter_noise) / 256.
+      squashed_im = (jittered_im - 0.5) * (1 - alpha) + 0.5
+      return squashed_im
+
+    dataset = dataset.map(lambda im: jitter_im(im, alpha=1e-6))
+
   if repeat:
     dataset = dataset.repeat()
   if shuffle:
