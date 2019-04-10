@@ -14,13 +14,13 @@ tf.logging.set_verbosity(tf.logging.INFO)
 tf.app.flags.DEFINE_enum("mode", "train", ["train", "eval"],
                          "Mode to run.")
 tf.app.flags.DEFINE_enum("dataset", "raw_mnist",
-                         ["raw_mnist", "dynamic_mnist", "static_mnist"],
+                         ["raw_mnist", "jittered_mnist", "dynamic_mnist", "static_mnist"],
                          "Dataset to use.")
 tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis"],
                         "Proposal type to use.")
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
-                        ["bernoulli_vae","gaussian_vae","nis", "bnis", "his"],
+                        ["bernoulli_vae","gaussian_vae","nis", "bnis", "his", "maf"],
                         "Model type to use.")
 tf.app.flags.DEFINE_boolean("reparameterize_proposal", True,
                             "If true, reparameterize the samples of the prior.")
@@ -109,6 +109,9 @@ def get_dataset(dataset, batch_size, split, repeat=True, shuffle=True, initializ
   elif dataset == "static_mnist":
     data_batch, mean, itr = datasets.get_static_mnist(batch_size=batch_size, split=split,
             repeat=repeat, shuffle=shuffle, initializable=initializable)
+  elif dataset == "jittered_mnist":
+    data_batch, mean, itr = datasets.get_jittered_mnist(batch_size=batch_size, split=split,
+            repeat=repeat, shuffle=shuffle, initializable=initializable)
 
   return tf.cast(data_batch, tf.float32), mean, itr
 
@@ -126,7 +129,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   # Other proposals don't because they are proposing latent states.
   if model_type == "his":
     proposal_data_dim = 2*data_dim
-  elif model_type == "nis" or model_type == "bnis":
+  elif model_type in ["nis", "bnis", "maf"]:
     proposal_data_dim = data_dim
   elif model_type == "bernoulli_vae" or model_type == "gaussian_vae":
     proposal_data_dim = FLAGS.latent_dim
@@ -230,6 +233,13 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             init_alpha=FLAGS.his_init_alpha,
             init_step_size=FLAGS.his_init_stepsize,
             dtype=tf.float32)
+  elif model_type == "maf":
+    model = maf.MAF(
+        data_dim=data_dim,
+        hidden_sizes=[100, 100],
+        flow_layers=2,
+        proposal=proposal,
+        dtype=tf.float32)
 
   return model
 
