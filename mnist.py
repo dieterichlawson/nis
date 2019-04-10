@@ -133,9 +133,9 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   kl_weight = make_kl_weight(global_step, FLAGS.anneal_kl_step)
   # Bernoulli VAE proposal gets that data mean because it is proposing images.
   # Other proposals don't because they are proposing latent states.
-  decoder_hidden_sizes = [int(x.strip()) for x in FLAG.decoder_hidden_sizes.split(",")]
-  q_hidden_sizes = [int(x.strip()) for x in FLAG.q_hidden_sizes.split(",")]
-  energy_hidden_sizes = [int(x.strip()) for x in FLAG.energy_hidden_sizes.split(",")]
+  decoder_hidden_sizes = [int(x.strip()) for x in FLAGS.decoder_hidden_sizes.split(",")]
+  q_hidden_sizes = [int(x.strip()) for x in FLAGS.q_hidden_sizes.split(",")]
+  energy_hidden_sizes = [int(x.strip()) for x in FLAGS.energy_hidden_sizes.split(",")]
   if model_type == "his":
     proposal_data_dim = 2*data_dim
   elif model_type in ["nis", "bnis", "maf"]:
