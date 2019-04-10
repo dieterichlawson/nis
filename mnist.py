@@ -28,6 +28,9 @@ tf.app.flags.DEFINE_boolean("squash", False,
                             "If true, squash the output of the normal prior to be between 0 and 1.")
 tf.app.flags.DEFINE_float("gst_temperature", 0.7,
                           "Default temperature for the Gumbel straight-through relaxation.")
+tf.app.flags.DEFINE_boolean("vae_decoder_nn_scale", True,
+                            "If true, the scale of the data in the VAE is defined by a NN."
+                            "If false, it is defined by a learnable per-dimension constant.")
 tf.app.flags.DEFINE_boolean("learn_his_temps", False,
                             "If true, the annealing schedule of HIS is learnable.")
 tf.app.flags.DEFINE_boolean("learn_his_stepsize", False,
@@ -145,6 +148,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             latent_dim=FLAGS.latent_dim,
             data_dim=proposal_data_dim,
             decoder_hidden_sizes=[300, 300],
+            decoder_nn_scale=FLAGS.vae_decoder_nn_scale,
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
             kl_weight=kl_weight,
@@ -188,6 +192,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             data_dim=data_dim,
             data_mean=mean,
             decoder_hidden_sizes=[300, 300],
+            decoder_nn_scale=FLAGS.vae_decoder_nn_scale,
             q_hidden_sizes=[300, 300],
             scale_min=FLAGS.scale_min,
             prior=proposal,

@@ -100,15 +100,30 @@ def conditional_normal(
         squash=False,
         squash_eps=1e-4,
         bias_init=None,
+        scale_init=1.,
+        nn_scale=True,
         name=None):
-    raw_params = mlp(inputs,
-                     hidden_sizes + [2*data_dim],
-                     hidden_activation=hidden_activation,
-                     final_activation=None,
-                     name=name)
     assert (not truncate) or (not squash), "Cannot squash and truncate"
-
-    loc, raw_scale = tf.split(raw_params, 2, axis=-1)
+    if nn_scale:
+      raw_params = mlp(inputs,
+                       hidden_sizes + [2*data_dim],
+                       hidden_activation=hidden_activation,
+                       final_activation=None,
+                       name=name)
+      loc, raw_scale = tf.split(raw_params, 2, axis=-1)
+    else:
+      loc = mlp(inputs,
+                hidden_sizes + [data_dim],
+                hidden_activation=hidden_activation,
+                final_activation=None,
+                name=name + "_loc")
+      with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+        raw_scale_init = np.log(np.exp(scale_init) - 1 + scale_min)
+        raw_scale = tf.get_variable(name="raw_sigma",
+                                    shape=[data_dim],
+                                    dtype=tf.float32,
+                                    initializer=tf.constant_initializer(raw_scale_init),
+                                    trainable=True)
     scale = tf.math.maximum(scale_min, tf.math.softplus(raw_scale))
     with tf.name_scope(name):
       tf.summary.histogram("scale", scale, family="scales")
