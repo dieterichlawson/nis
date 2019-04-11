@@ -232,7 +232,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     model = maf.MAF(
         data_dim=data_dim,
         hidden_sizes=[100, 100],
-        flow_layers=2,
+        flow_layers=10,
         proposal=proposal,
         dtype=tf.float32)
 
