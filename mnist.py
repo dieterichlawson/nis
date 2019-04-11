@@ -22,12 +22,21 @@ tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","nis", "bnis", "his", "maf"],
                         "Model type to use.")
+tf.app.flags.DEFINE_string("decoder_hidden_sizes", "300,300",
+                           "Comma-delimited list denoting the hidden sizes of the VAE decoder.")
+tf.app.flags.DEFINE_string("q_hidden_sizes", "300,300",
+                           "Comma-delimited list denoting the hidden sizes of q.")
+tf.app.flags.DEFINE_string("energy_hidden_sizes", "100,100",
+                           "Comma-delimited list denoting the hidden sizes of the energy function.")
 tf.app.flags.DEFINE_boolean("reparameterize_proposal", True,
                             "If true, reparameterize the samples of the prior.")
 tf.app.flags.DEFINE_boolean("squash", False,
                             "If true, squash the output of the normal prior to be between 0 and 1.")
 tf.app.flags.DEFINE_float("gst_temperature", 0.7,
                           "Default temperature for the Gumbel straight-through relaxation.")
+tf.app.flags.DEFINE_boolean("vae_decoder_nn_scale", True,
+                            "If true, the scale of the data in the VAE is defined by a NN."
+                            "If false, it is defined by a learnable per-dimension constant.")
 tf.app.flags.DEFINE_boolean("learn_his_temps", False,
                             "If true, the annealing schedule of HIS is learnable.")
 tf.app.flags.DEFINE_boolean("learn_his_stepsize", False,
@@ -64,6 +73,8 @@ tf.app.flags.DEFINE_integer("summarize_every", int(1e3),
                             "The number of steps between each evaluation.")
 tf.app.flags.DEFINE_integer("num_summary_ims", 8,
                             "The number of images to sample from the model for evaluation.")
+tf.app.flags.DEFINE_integer("flow_layers", 5,
+                            "The number of flow layers to use in the MAF model.")
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -124,6 +135,9 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   kl_weight = make_kl_weight(global_step, FLAGS.anneal_kl_step)
   # Bernoulli VAE proposal gets that data mean because it is proposing images.
   # Other proposals don't because they are proposing latent states.
+  decoder_hidden_sizes = [int(x.strip()) for x in FLAGS.decoder_hidden_sizes.split(",")]
+  q_hidden_sizes = [int(x.strip()) for x in FLAGS.q_hidden_sizes.split(",")]
+  energy_hidden_sizes = [int(x.strip()) for x in FLAGS.energy_hidden_sizes.split(",")]
   if model_type == "his":
     proposal_data_dim = 2*data_dim
   elif model_type in ["nis", "bnis", "maf"]:
@@ -136,8 +150,8 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             latent_dim=FLAGS.latent_dim,
             data_dim=proposal_data_dim,
             data_mean=mean,
-            decoder_hidden_sizes=[300, 300],
-            q_hidden_sizes=[300, 300],
+            decoder_hidden_sizes=decoder_hidden_sizes,
+            q_hidden_sizes=q_hidden_sizes,
             scale_min=FLAGS.scale_min,
             kl_weight=kl_weight,
             reparameterize_sample=FLAGS.reparameterize_proposal,
@@ -147,8 +161,9 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     proposal = vae.GaussianVAE(
             latent_dim=FLAGS.latent_dim,
             data_dim=proposal_data_dim,
-            decoder_hidden_sizes=[300, 300],
-            q_hidden_sizes=[300, 300],
+            decoder_hidden_sizes=decoder_hidden_sizes,
+            decoder_nn_scale=FLAGS.vae_decoder_nn_scale,
+            q_hidden_sizes=q_hidden_sizes,
             scale_min=FLAGS.scale_min,
             kl_weight=kl_weight,
             squash=FLAGS.squash,
@@ -157,7 +172,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     proposal = nis.NIS(
             K=FLAGS.K,
             data_dim=proposal_data_dim,
-            energy_hidden_sizes=[100, 100],
+            energy_hidden_sizes=energy_hidden_sizes,
             dtype=tf.float32)
   elif proposal_type == "gaussian":
     proposal = tfd.MultivariateNormalDiag(
@@ -167,8 +182,8 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
     proposal = nis.BernoulliNIS(
             K=FLAGS.K,
             data_dim=proposal_data_dim,
-            energy_hidden_sizes=[100, 100],
-            q_hidden_sizes=[300, 300],
+            energy_hidden_sizes=energy_hidden_sizes,
+            q_hidden_sizes=q_hidden_sizes,
             temperature=FLAGS.gst_temperature,
             dtype=tf.float32)
 
@@ -178,8 +193,8 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             latent_dim=FLAGS.latent_dim,
             data_dim=data_dim,
             data_mean=mean,
-            decoder_hidden_sizes=[300, 300],
-            q_hidden_sizes=[300, 300],
+            decoder_hidden_sizes=decoder_hidden_sizes,
+            q_hidden_sizes=q_hidden_sizes,
             scale_min=FLAGS.scale_min,
             prior=proposal,
             kl_weight=kl_weight,
@@ -190,8 +205,9 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             latent_dim=FLAGS.latent_dim,
             data_dim=data_dim,
             data_mean=mean,
-            decoder_hidden_sizes=[300, 300],
-            q_hidden_sizes=[300, 300],
+            decoder_hidden_sizes=decoder_hidden_sizes,
+            decoder_nn_scale=FLAGS.vae_decoder_nn_scale,
+            q_hidden_sizes=q_hidden_sizes,
             scale_min=FLAGS.scale_min,
             prior=proposal,
             kl_weight=kl_weight,
@@ -201,7 +217,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             K=FLAGS.K,
             data_dim=data_dim,
             data_mean=mean,
-            energy_hidden_sizes=[100, 100],
+            energy_hidden_sizes=energy_hidden_sizes,
             proposal=proposal,
             reparameterize_proposal_samples=FLAGS.reparameterize_proposal,
             dtype=tf.float32)
@@ -210,8 +226,8 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             K=FLAGS.K,
             data_dim=data_dim,
             data_mean=mean,
-            energy_hidden_sizes=[100, 100],
-            q_hidden_sizes=[300, 300],
+            energy_hidden_sizes=energy_hidden_sizes,
+            q_hidden_sizes=q_hidden_sizes,
             proposal=proposal,
             temperature=FLAGS.gst_temperature,
             dtype=tf.float32)
@@ -221,8 +237,8 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             T=FLAGS.his_T,
             data_dim=data_dim,
             data_mean=mean,
-            energy_hidden_sizes=[100, 100],
-            q_hidden_sizes=[300,300],
+            energy_hidden_sizes=energy_hidden_sizes,
+            q_hidden_sizes=q_hidden_sizes,
             learn_temps=FLAGS.learn_his_temps,
             learn_stepsize=FLAGS.learn_his_stepsize,
             init_alpha=FLAGS.his_init_alpha,
@@ -231,8 +247,8 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   elif model_type == "maf":
     model = maf.MAF(
         data_dim=data_dim,
-        hidden_sizes=[100, 100],
-        flow_layers=10,
+        hidden_sizes=energy_hidden_sizes,
+        flow_layers=FLAGS.flow_layers,
         proposal=proposal,
         dtype=tf.float32)
 
