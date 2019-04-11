@@ -16,6 +16,7 @@ class MAF(object):
                flow_layers,
                proposal=None,
                data_mean=None,
+               alpha=1e-6,
                dtype=tf.float32,
                name="maf"):
     """Creates a MAF model.
@@ -40,7 +41,9 @@ class MAF(object):
       self.proposal = proposal
 
 
-    bijectors = [tfb.Sigmoid()]
+    bijectors = [tfb.AffineScalar(scale=256.),
+                 tfb.AffineScalar(scale=1./(1. - alpha), shift=0.5*(1. - 1./(1.-alpha))),
+                 tfb.Sigmoid()]
     for _ in range(flow_layers):
       bijectors.append(tfb.MaskedAutoregressiveFlow(
           shift_and_log_scale_fn=tfb.masked_autoregressive_default_template(

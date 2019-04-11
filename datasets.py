@@ -63,9 +63,10 @@ def _get_mnist(data_dir, batch_size, split="train", binarized=None, repeat=True,
     # Add uniform dequantization jitter
     def jitter_im(im, alpha):
       jitter_noise = tfd.Uniform(low=tf.zeros_like(im), high=tf.ones_like(im)).sample()
-      jittered_im = (im * 255. + jitter_noise) / 256.
-      squashed_im = (jittered_im - 0.5) * (1 - alpha) + 0.5
-      return squashed_im
+      jittered_im = im * 255. + jitter_noise
+      return jittered_im
+      #squashed_im = (jittered_im - 128.) * (1 - alpha) + 128.
+      #return squashed_im
 
     dataset = dataset.map(lambda im: jitter_im(im, alpha=1e-6))
 
