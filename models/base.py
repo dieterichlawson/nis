@@ -136,15 +136,17 @@ def conditional_normal(
               TruncatedNormal(loc=loc, scale=scale, low=0., high=1.),
               reinterpreted_batch_ndims=1) 
     elif squash:
+      bijectors = [tfp.bijectors.AffineScalar(scale=256.),
+                   tfp.bijectors.AffineScalar(shift=-squash_eps/2.,
+                                              scale=(1. + squash_eps)),
+                   tfp.bijectors.Sigmoid(),
+                   ]
       return tfd.Independent(
-              tfd.TransformedDistribution(
-                  tfd.TransformedDistribution(
-                      distribution=tfd.Normal(loc=loc, scale=scale),
-                      bijector=tfp.bijectors.Sigmoid(),
-                      name="SigmoidTransformedNormalDistribution"),
-                  bijector=tfp.bijectors.AffineScalar(shift=-squash_eps/2., scale=(1. + squash_eps)),
-                  name="AffineTransformedNormalDistribution"),
-                reinterpreted_batch_ndims=1)
+          tfd.TransformedDistribution(
+              distribution=tfd.Normal(loc=loc, scale=scale),
+              bijector=tfp.bijectors.Chain(bijectors)
+              name="SquashedNormalDistribution"),
+          reinterpreted_batch_ndims=1)
     else:
       return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
 
