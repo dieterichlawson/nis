@@ -144,7 +144,7 @@ def conditional_normal(
       return tfd.Independent(
           tfd.TransformedDistribution(
               distribution=tfd.Normal(loc=loc, scale=scale),
-              bijector=tfp.bijectors.Chain(bijectors)
+              bijector=tfp.bijectors.Chain(bijectors),
               name="SquashedNormalDistribution"),
           reinterpreted_batch_ndims=1)
     else:

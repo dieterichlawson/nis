@@ -217,7 +217,8 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             scale_min=FLAGS.scale_min,
             prior=proposal,
             kl_weight=kl_weight,
-            dtype=tf.float32)
+            dtype=tf.float32,
+            squash=FLAGS.squash)
   elif model_type == "nis":
     model = nis.NIS(
             K=FLAGS.K,
