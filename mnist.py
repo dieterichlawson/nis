@@ -17,7 +17,7 @@ tf.app.flags.DEFINE_enum("dataset", "raw_mnist",
                          ["raw_mnist", "jittered_mnist", "dynamic_mnist", "static_mnist"],
                          "Dataset to use.")
 tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
-                        ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis"],
+                        ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis", "maf"],
                         "Proposal type to use.")
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","nis", "bnis", "his", "maf"],
@@ -186,6 +186,12 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             q_hidden_sizes=q_hidden_sizes,
             temperature=FLAGS.gst_temperature,
             dtype=tf.float32)
+  elif proposal_type == "maf":
+    proposal = maf.MAF(
+        data_dim=proposal_data_dim,
+        hidden_sizes=energy_hidden_sizes,
+        flow_layers=FLAGS.flow_layers,
+        dtype=tf.float32)
 
 
   if model_type == "bernoulli_vae":
