@@ -5,94 +5,110 @@ tfd = tfp.distributions
 import functools
 from . import base
 
-def _expand_to_ta(x, length):
-  x = tf.convert_to_tensor(x)
-  if x.get_shape().ndims == 0:
-    expanded = tf.tile(tf.reshape(x, [1]), [length])
-  elif x.get_shape().ndims == 1:
-    if x.get_shape()[0] == length:
-      expanded = x
-    else:
-      expanded = tf.tile(tf.reshape(x,[1]), [length])
-  ta = tf.TensorArray(dtype=x.dtype,
-                      size=length,
-                      dynamic_size=False,
-                      clear_after_read=False,
-                      infer_shape=True).unstack(expanded)
-  return ta
+import pdb
 
-def _hamiltonian_dynamics(x_0, momentum_0, energy_fn, T, step_size, temps):
-  temperature_ta = _expand_to_ta(temps, T)
-  t_0 = tf.constant(0, tf.int32, name="t_0")
-  x_ta = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
-                      clear_after_read=False,infer_shape=True)
-  momentum_ta = tf.TensorArray(dtype=momentum_0.dtype, size=T, dynamic_size=False,
-                               clear_after_read=False,infer_shape=True)
-  kinetic_energy_ta = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
-                                     clear_after_read=False,infer_shape=True)
-  potential_energy_ta = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
-                                       clear_after_read=False,infer_shape=True)
-  tas = [x_ta, momentum_ta, kinetic_energy_ta, potential_energy_ta]
+#def _expand_to_ta(x, length):
+#  x = tf.convert_to_tensor(x)
+#  if x.get_shape().ndims == 0:
+#    expanded = tf.tile(tf.reshape(x, [1]), [length])
+#  elif x.get_shape().ndims == 1:
+#    if x.get_shape()[0] == length:
+#      expanded = x
+#    else:
+#      expanded = tf.tile(tf.reshape(x,[1]), [length])
+#  ta = tf.TensorArray(dtype=x.dtype,
+#                      size=length,
+#                      dynamic_size=False,
+#                      clear_after_read=False,
+#                      infer_shape=True).unstack(expanded)
+#  return ta
+#
+#def _hamiltonian_dynamics(x_0, momentum_0, energy_fn, T, step_size, temps):
+#  temperature_ta = _expand_to_ta(temps, T)
+#  t_0 = tf.constant(0, tf.int32, name="t_0")
+#  x_ta = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
+#                      clear_after_read=False,infer_shape=True)
+#  momentum_ta = tf.TensorArray(dtype=momentum_0.dtype, size=T, dynamic_size=False,
+#                               clear_after_read=False,infer_shape=True)
+#  kinetic_energy_ta = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
+#                                     clear_after_read=False,infer_shape=True)
+#  potential_energy_ta = tf.TensorArray(dtype=x_0.dtype, size=T, dynamic_size=False,
+#                                       clear_after_read=False,infer_shape=True)
+#  tas = [x_ta, momentum_ta, kinetic_energy_ta, potential_energy_ta]
+#
+#  def _step(t, prev_x, prev_momentum, prev_energy_grad, tas):
+#    temp = temperature_ta.read(t)
+#    momentum_tilde = prev_momentum - (step_size/2.)*prev_energy_grad
+#    new_x = prev_x + step_size*momentum_tilde
+#    energy_at_new_x = tf.squeeze(energy_fn(new_x))
+#    grad_energy_at_new_x = tf.gradients(energy_at_new_x, new_x)[0]
+#    new_momentum = temp*(momentum_tilde - (step_size/2.)*grad_energy_at_new_x)
+#    kinetic_energy = tf.reduce_sum(tf.square(new_momentum)/2.)
+#    ta_updates = [new_x, new_momentum, kinetic_energy, energy_at_new_x]
+#    tas = [ta.write(t, z) for ta, z in zip(tas, ta_updates)]
+#    return (t+1, new_x, new_momentum, grad_energy_at_new_x, tas)
+#
+#  def _predicate(t, *unused_args):
+#    return t < T
+#
+#  grad_energy_0 = tf.gradients(energy_fn(x_0), x_0)[0]
+#  _, final_x, final_momentum, _, tas = tf.while_loop(
+#      _predicate,
+#      _step,
+#      loop_vars=(t_0, x_0, momentum_0, grad_energy_0, tas))
+#  xs, momentums, kes, pes = [t.stack() for t in tas]
+#  return final_x, final_momentum, xs, momentums, kes, pes 
+#
+#def _reverse_hamiltonian_dynamics(x_T, momentum_T, energy_fn, T, step_size, temps):
+#  temperature_ta = _expand_to_ta(temps, T)
+#  t_T = tf.constant(T-1, tf.int32, name="t_T")
+#  x_ta = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
+#                      clear_after_read=False,infer_shape=True)
+#  momentum_ta = tf.TensorArray(dtype=momentum_T.dtype, size=T, dynamic_size=False,
+#                               clear_after_read=False,infer_shape=True)
+#  kinetic_energy_ta = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
+#                                     clear_after_read=False,infer_shape=True)
+#  potential_energy_ta = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
+#                                       clear_after_read=False,infer_shape=True)
+#  tas = [x_ta, momentum_ta, kinetic_energy_ta, potential_energy_ta]
+#
+#  def _step(t, next_x, next_momentum, next_energy_grad, tas):
+#    temp = temperature_ta.read(t)
+#    momentum_tilde = next_momentum/temp + (step_size/2.)*next_energy_grad
+#    prev_x = next_x - step_size*momentum_tilde
+#    energy_at_prev_x = tf.squeeze(energy_fn(prev_x))
+#    grad_energy_at_prev_x = tf.gradients(energy_at_prev_x, prev_x)[0]
+#    prev_momentum = momentum_tilde + (step_size/2.)*grad_energy_at_prev_x
+#    kinetic_energy = tf.reduce_sum(tf.square(prev_momentum)/2.)
+#    ta_updates = [prev_x, prev_momentum, kinetic_energy, energy_at_prev_x]
+#    new_tas = [ta.write(t, z) for ta, z in zip(tas, ta_updates)]
+#    return (t-1, prev_x, prev_momentum, grad_energy_at_prev_x, new_tas)
+#
+#  def _predicate(t, *unused_args):
+#    return t >= 0
+#
+#  grad_energy_T = tf.gradients(energy_fn(x_T), x_T)[0]
+#  _, x_0, momentum_0, _, tas= tf.while_loop(
+#      _predicate,
+#      _step,
+#      loop_vars=(t_T, x_T, momentum_T, grad_energy_T, tas))
+#  xs, momentums, kes, pes = [t.stack() for t in tas]
+#  return x_0, momentum_0, xs, momentums, kes, pes
 
-  def _step(t, prev_x, prev_momentum, prev_energy_grad, tas):
-    temp = temperature_ta.read(t)
-    momentum_tilde = prev_momentum - (step_size/2.)*prev_energy_grad
-    new_x = prev_x + step_size*momentum_tilde
-    energy_at_new_x = tf.squeeze(energy_fn(new_x))
-    grad_energy_at_new_x = tf.gradients(energy_at_new_x, new_x)[0]
-    new_momentum = temp*(momentum_tilde - (step_size/2.)*grad_energy_at_new_x)
-    kinetic_energy = tf.reduce_sum(tf.square(new_momentum)/2.)
-    ta_updates = [new_x, new_momentum, kinetic_energy, energy_at_new_x]
-    tas = [ta.write(t, z) for ta, z in zip(tas, ta_updates)]
-    return (t+1, new_x, new_momentum, grad_energy_at_new_x, tas)
 
-  def _predicate(t, *unused_args):
-    return t < T
-
-  grad_energy_0 = tf.gradients(energy_fn(x_0), x_0)[0]
-  _, final_x, final_momentum, _, tas = tf.while_loop(
-      _predicate,
-      _step,
-      loop_vars=(t_0, x_0, momentum_0, grad_energy_0, tas))
-  xs, momentums, kes, pes = [t.stack() for t in tas]
-  return final_x, final_momentum, xs, momentums, kes, pes 
-
-
-def _reverse_hamiltonian_dynamics(x_T, momentum_T, energy_fn, T, step_size, temps):
-  temperature_ta = _expand_to_ta(temps, T)
-  t_T = tf.constant(T-1, tf.int32, name="t_T")
-  x_ta = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
-                      clear_after_read=False,infer_shape=True)
-  momentum_ta = tf.TensorArray(dtype=momentum_T.dtype, size=T, dynamic_size=False,
-                               clear_after_read=False,infer_shape=True)
-  kinetic_energy_ta = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
-                                     clear_after_read=False,infer_shape=True)
-  potential_energy_ta = tf.TensorArray(dtype=x_T.dtype, size=T, dynamic_size=False,
-                                       clear_after_read=False,infer_shape=True)
-  tas = [x_ta, momentum_ta, kinetic_energy_ta, potential_energy_ta]
-
-  def _step(t, next_x, next_momentum, next_energy_grad, tas):
-    temp = temperature_ta.read(t)
-    momentum_tilde = next_momentum/temp + (step_size/2.)*next_energy_grad
-    prev_x = next_x - step_size*momentum_tilde
-    energy_at_prev_x = tf.squeeze(energy_fn(prev_x))
-    grad_energy_at_prev_x = tf.gradients(energy_at_prev_x, prev_x)[0]
-    prev_momentum = momentum_tilde + (step_size/2.)*grad_energy_at_prev_x
-    kinetic_energy = tf.reduce_sum(tf.square(prev_momentum)/2.)
-    ta_updates = [prev_x, prev_momentum, kinetic_energy, energy_at_prev_x]
-    new_tas = [ta.write(t, z) for ta, z in zip(tas, ta_updates)]
-    return (t-1, prev_x, prev_momentum, grad_energy_at_prev_x, new_tas)
-
-  def _predicate(t, *unused_args):
-    return t >= 0
-
-  grad_energy_T = tf.gradients(energy_fn(x_T), x_T)[0]
-  _, x_0, momentum_0, _, tas= tf.while_loop(
-      _predicate,
-      _step,
-      loop_vars=(t_T, x_T, momentum_T, grad_energy_T, tas))
-  xs, momentums, kes, pes = [t.stack() for t in tas]
-  return x_0, momentum_0, xs, momentums, kes, pes
+# Reimplement w/ unrolled dynamics
+def _hamiltonian_dynamics(x, momentum, energy_fn, T, step_size, temps):
+  energy_x = energy_fn(x)
+  grad_energy = tf.gradients(energy_x, x)[0]
+  for t in range(T):
+    momentum -= step_size/2.*grad_energy
+    x += step_size * momentum
+    energy_x = energy_fn(x)
+    grad_energy = tf.gradients(energy_x, x)[0]
+    momentum -= step_size/2.*grad_energy
+    # Ignore tempering for now
+    #momentum *= temps[t]
+  return x, momentum
 
 class HIS(object):
 
@@ -110,6 +126,11 @@ class HIS(object):
                scale_min=1e-5,
                dtype=tf.float32,
                name="his"):
+    """
+    For HIS, U is potential/energy, so lower energy is good.
+
+    dist is \propto \exp(-U)
+    """
     self.data_dim = data_dim
     if data_mean is not None:
       self.data_mean = data_mean
@@ -133,12 +154,13 @@ class HIS(object):
     eps = 0.0001
     init_alpha = -np.log(1./init_alpha - 1. + eps)
     with tf.name_scope(name):
-      self.raw_alphas = tf.get_variable(name="raw_alpha",
-                                        shape=[T],
-                                        dtype=tf.float32,
-                                        initializer=tf.constant_initializer(init_alpha),
-                                        trainable=learn_temps)
-      self.alphas = tf.math.sigmoid(self.raw_alphas)
+      #self.raw_alphas = tf.get_variable(name="raw_alpha",
+      #                                  shape=[T],
+      #                                  dtype=tf.float32,
+      #                                  initializer=tf.constant_initializer(init_alpha),
+      #                                  trainable=learn_temps)
+      #self.alphas = tf.math.sigmoid(self.raw_alphas)
+      self.alphas = None
       init_step_size = np.log(np.exp(init_step_size) - 1.)
       self.raw_step_size = tf.get_variable(name="raw_step_size",
                                            shape=[data_dim],
@@ -148,10 +170,16 @@ class HIS(object):
       self.step_size = tf.math.softplus(self.raw_step_size)
 
     if proposal is None:
-      self.proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2*data_dim], dtype=dtype),
-                                                 scale_diag=tf.ones([2*data_dim], dtype=dtype))
+      self.proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([data_dim], dtype=dtype),
+                                                 scale_diag=tf.ones([data_dim], dtype=dtype))
     else:
       self.proposal = proposal
+    self.monentum_proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([data_dim], dtype=dtype),
+                                                 scale_diag=tf.ones([data_dim], dtype=dtype))
+
+    def hamiltonian_potential(x):
+      return tf.squeeze(self.energy_fn(x)) - self.proposal.log_prob(x)
+    self.hamiltonian_potential = hamiltonian_potential
 
   def log_prob(self, data, num_samples=1):
     batch_shape = tf.shape(data)[0:-1]
@@ -161,22 +189,48 @@ class HIS(object):
     return log_prob
 
   def _log_prob(self, data, num_samples=1):
+    # Ignore num_samples for now
     q = self.q(data)
-    rho_T = q.sample([num_samples])
-    x_T = tf.tile(data[tf.newaxis,:,:], [num_samples, 1,1])
-    x_0, rho_0, _, _, _, pes = _reverse_hamiltonian_dynamics(x_T, rho_T, self.energy_fn, self.T,
-                                                             step_size=self.step_size, temps=self.alphas)
-    tf.summary.histogram("energies", pes)
-    tf.summary.scalar("min_energies", tf.reduce_min(pes))
-    tf.summary.scalar("max_energies", tf.reduce_max(pes))
-    log_p0 = self.proposal.log_prob(tf.concat([x_0, rho_0], axis=2))
-    elbo = log_p0 - self.data_dim*tf.reduce_sum(tf.log(self.alphas)) - q.log_prob(rho_T)
-    return tf.reduce_logsumexp(elbo, axis=0) - tf.log(tf.to_float(num_samples))
+    rho_T = q.sample()
+    x_T = data
+
+    # Run in reverse by flipping momentum
+    x_0, neg_rho_0 = _hamiltonian_dynamics(x_T, -rho_T, self.hamiltonian_potential, self.T,
+                                           step_size=self.step_size,
+                                           temps=self.alphas)
+    log_p0 = self.proposal.log_prob(x_0) + self.monentum_proposal.log_prob(-neg_rho_0)
+    elbo = log_p0 - q.log_prob(rho_T)  # No alpha for now
+
+#    elbo = tf.Print(elbo,
+#                    [x_T, rho_T, x_0, -neg_rho_0],
+#                    summarize=1000)
+    #pdb.set_trace()
+
+    tf.summary.histogram("energies", self.hamiltonian_potential(data))
+    #tf.summary.histogram("energies", pes)
+    #tf.summary.scalar("min_energies", tf.reduce_min(pes))
+    #tf.summary.scalar("max_energies", tf.reduce_max(pes))
+    return elbo #tf.reduce_logsumexp(elbo, axis=0) - tf.log(tf.to_float(num_samples))
+
+  #def _log_prob(self, data, num_samples=1):
+  #  q = self.q(data)
+  #  rho_T = q.sample([num_samples])
+  #  x_T = tf.tile(data[tf.newaxis,:,:], [num_samples, 1,1])
+  #  x_0, rho_0, _, _, _, pes = _reverse_hamiltonian_dynamics(x_T, rho_T, self.energy_fn, self.T,
+  #                                                           step_size=self.step_size, temps=self.alphas)
+  #  tf.summary.histogram("initial_energies", self.energy_fn(data))
+  #  tf.summary.histogram("energies", pes)
+  #  tf.summary.scalar("min_energies", tf.reduce_min(pes))
+  #  tf.summary.scalar("max_energies", tf.reduce_max(pes))
+  #  log_p0 = self.proposal.log_prob(tf.concat([x_0, rho_0], axis=2))
+  #  elbo = log_p0 - self.data_dim*tf.reduce_sum(tf.log(self.alphas)) - q.log_prob(rho_T)
+  #  return tf.reduce_logsumexp(elbo, axis=0) - tf.log(tf.to_float(num_samples))
 
   def sample(self, sample_shape=[1]):
-    x_and_rho = self.proposal.sample(sample_shape=sample_shape)
-    x_0, rho_0 = tf.split(x_and_rho, 2, axis=-1)
-    x_T, rho_T, xs, _, _, _ = _hamiltonian_dynamics(x_0, rho_0, self.energy_fn, self.T,
+    x_0 = self.proposal.sample(sample_shape=sample_shape)
+    rho_0 = self.momentum_proposal.sample(sample_shape=sample_shape)
+
+    x_T, _ = _hamiltonian_dynamics(x_0, rho_0, self.hamiltonian_potential, self.T,
                                                     step_size=self.step_size, temps=self.alphas)
     return x_T#, rho_T, xs
 
