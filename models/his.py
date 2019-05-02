@@ -60,6 +60,10 @@ class HIS(object):
                                            initializer=tf.constant_initializer(init_step_size),
                                            trainable=learn_stepsize)
       self.step_size = tf.math.softplus(self.raw_step_size)
+      tf.summary.scalar("his_step_size", tf.reduce_mean(self.step_size))
+      [tf.summary.scalar("his_alpha/alpha_%d" % t, tf.exp(self.log_alphas[t]))
+       for t in range(len(self.log_alphas))]
+
 
     if proposal is None:
       self.proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([data_dim], dtype=dtype),
@@ -73,13 +77,15 @@ class HIS(object):
     self.hamiltonian_potential = lambda x: (tf.squeeze(self.energy_fn(x))
                                             - self.proposal.log_prob(x))
 
+
+
   def _grad_hamiltonian_potential(self, x):
     potential = self.hamiltonian_potential(x)
     return tf.gradients(potential, x)[0]
 
   def _hamiltonian_dynamics(self, x, momentum, alphas=None):
     if alphas is None:
-      alphas = map(tf.exp, self.log_alphas)
+      alphas = [tf.exp(log_alpha) for log_alpha in self.log_alphas]
 
     momentum *= alphas[0]
     grad_energy = self._grad_hamiltonian_potential(x)
@@ -122,6 +128,6 @@ class HIS(object):
 
   def sample(self, sample_shape=[1]):
     x_0, rho_0 = self.proposal.sample(sample_shape=sample_shape), self.momentum_proposal.sample(sample_shape=sample_shape)
-    x_T, _ = _hamiltonian_dynamics(x_0, rho_0)
+    x_T, _ = self._hamiltonian_dynamics(x_0, rho_0)
     return x_T
 

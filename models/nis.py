@@ -111,7 +111,7 @@ class NIS(object):
     indexes = tfd.Categorical(logits=log_energy).sample() #[sample_shape]
     #[sample_shape, data_dim]
     samples = tf.batch_gather(proposal_samples, tf.expand_dims(indexes, axis=-1))
-    return samples
+    return tf.squeeze(samples)
 
 class BernoulliNIS(NIS):
 

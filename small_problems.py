@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from matplotlib import cm
+from scipy.stats import gaussian_kde
 import functools
 
 import tensorflow as tf
@@ -45,7 +46,7 @@ tf.app.flags.DEFINE_integer("batch_size", 4,
                              "The number of examples per batch.")
 tf.app.flags.DEFINE_integer("eval_batch_size", 1000,
                             "The number of examples per eval batch.")
-tf.app.flags.DEFINE_integer("density_num_points", 50,
+tf.app.flags.DEFINE_integer("density_num_points", 100,
                             "Number of points per axis when plotting density.")
 tf.app.flags.DEFINE_string("logdir", "/tmp/lars",
                             "Directory for summaries and checkpoints.")
@@ -54,6 +55,8 @@ tf.app.flags.DEFINE_integer("max_steps", int(1e6),
 tf.app.flags.DEFINE_integer("summarize_every", int(1e3),
                             "The number of steps between each evaluation.")
 FLAGS = tf.app.flags.FLAGS
+
+tf_viridis = lambda x: tf.py_func(cm.get_cmap('viridis'), [x], [tf.float64])
 
 class Ring2D(tfd.Distribution):
   
@@ -228,7 +231,7 @@ def make_lars_loss(target_dist,
   loss = -(log_pi_z_r + log_a_z_r - log_Z[tf.newaxis]) # [batch_size]
 
   tf.summary.scalar("log_Z_ema", log_Z_ema.average(log_Z_curr_avg_sg))
-  return tf.reduce_mean(loss), maintain_log_Z_ema_op, mlp_fn
+  return tf.reduce_mean(loss), maintain_log_Z_ema_op, mlp_fn, proposal
 
 def make_lars_graph(target_dist,
                     batch_size=16,
@@ -236,11 +239,11 @@ def make_lars_graph(target_dist,
                     lr=1e-4, 
                     mlp_layers=[10, 10], 
                     dtype=tf.float32):
-  loss, ema_op, mlp = make_lars_loss(target_dist, 
+  loss, ema_op, mlp, proposal = make_lars_loss(target_dist, 
                                      batch_size=batch_size, 
                                      accept_fn_layers=mlp_layers,
                                      dtype=dtype)
-  eval_loss, eval_ema_op, _ = make_lars_loss(target_dist, 
+  eval_loss, eval_ema_op, _, _ = make_lars_loss(target_dist, 
                                              batch_size=eval_batch_size, 
                                              accept_fn_layers=mlp_layers,
                                              dtype=dtype)
@@ -252,53 +255,50 @@ def make_lars_graph(target_dist,
     apply_grads_op = opt.apply_gradients(grads, global_step=global_step)
   # Create summaries.
 
-  def f(x):
-    e = mlp(x)
-    e -= tf.reduce_min(e)
-    return tf.exp(e)
+  density_image_summary(lambda x: tf.squeeze(mlp(x))
+                          + proposal.log_prob(x),
+                          FLAGS.density_num_points,
+                          'energy/lars')
 
-  density_image_summary(mlp=f, 
-                        num_points=FLAGS.density_num_points, 
-                        dtype=dtype)
   tf.summary.scalar("elbo", -loss)
   tf.summary.scalar("eval_elbo", -eval_loss)
   return loss, apply_grads_op, global_step
 
-def density_image_summary(mlp, num_points=50, dtype=tf.float32):
-  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
-    bounds = (-2,2)
-  elif FLAGS.target == CHECKERBOARD_DIST:
-    bounds = (0,1)
-
-  x = tf.range(bounds[0], bounds[1], delta=(bounds[1] - bounds[0])/float(num_points))
-  x_dim = tf.shape(x)[0]
-  X, Y = tf.meshgrid(x, x)
-  z = tf.transpose(tf.reshape(tf.stack([X,Y], axis=0), [2,-1]))
-  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2], dtype=dtype),
-                                        scale_diag=tf.ones([2], dtype=dtype))
-  
-  pi_z = proposal.prob(z)
-  energy_z = tf.squeeze(mlp(z))
-
-  unnorm_density = tf.reshape(pi_z*energy_z, [x_dim, x_dim])
-  
-  def normalize(x):
-    no_inf = tf.where(tf.is_inf(x), tf.zeros_like(x), x)
-    ma = tf.reduce_max(no_inf)
-    mi = tf.reduce_min(no_inf)
-    no_inf_x = tf.where(tf.is_inf(x), tf.ones_like(x)*ma, x)
-    normalized = tf.clip_by_value((no_inf_x - mi)/(ma-mi), 0., 1.)
-    return normalized
-
-  tf_viridis = lambda x: tf.py_func(cm.get_cmap('viridis'), [x], [tf.float64])
-  
-  density_plot = tf_viridis(normalize(unnorm_density))
-  energy_fn_plot = tf_viridis(normalize(tf.reshape(energy_z, [x_dim, x_dim])))
-  log_energy_fn_plot = tf_viridis(normalize(tf.reshape(tf.log(energy_z), [x_dim, x_dim])))
-  
-  tf.summary.image("density", density_plot, max_outputs=1, collections=["infrequent_summaries"])
-  #tf.summary.image("energy_fn", energy_fn_plot, max_outputs=1, collections=["infrequent_summaries"])
-  tf.summary.image("log_energy_fn", log_energy_fn_plot, max_outputs=1, collections=["infrequent_summaries"])
+#def density_image_summary(mlp, num_points=50, dtype=tf.float32):
+#  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
+#    bounds = (-2,2)
+#  elif FLAGS.target == CHECKERBOARD_DIST:
+#    bounds = (0,1)
+#
+#  x = tf.range(bounds[0], bounds[1], delta=(bounds[1] - bounds[0])/float(num_points))
+#  x_dim = tf.shape(x)[0]
+#  X, Y = tf.meshgrid(x, x)
+#  z = tf.transpose(tf.reshape(tf.stack([X,Y], axis=0), [2,-1]))
+#  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2], dtype=dtype),
+#                                        scale_diag=tf.ones([2], dtype=dtype))
+#  
+#  pi_z = proposal.prob(z)
+#  energy_z = tf.squeeze(mlp(z))
+#
+#  unnorm_density = tf.reshape(pi_z*energy_z, [x_dim, x_dim])
+#  
+#  def normalize(x):
+#    no_inf = tf.where(tf.is_inf(x), tf.zeros_like(x), x)
+#    ma = tf.reduce_max(no_inf)
+#    mi = tf.reduce_min(no_inf)
+#    no_inf_x = tf.where(tf.is_inf(x), tf.ones_like(x)*ma, x)
+#    normalized = tf.clip_by_value((no_inf_x - mi)/(ma-mi), 0., 1.)
+#    return normalized
+#
+#  tf_viridis = lambda x: tf.py_func(cm.get_cmap('viridis'), [x], [tf.float64])
+#  
+#  density_plot = tf_viridis(normalize(unnorm_density))
+#  energy_fn_plot = tf_viridis(normalize(tf.reshape(energy_z, [x_dim, x_dim])))
+#  log_energy_fn_plot = tf_viridis(normalize(tf.reshape(tf.log(energy_z), [x_dim, x_dim])))
+#  
+#  tf.summary.image("density", density_plot, max_outputs=1, collections=["infrequent_summaries"])
+#  #tf.summary.image("energy_fn", energy_fn_plot, max_outputs=1, collections=["infrequent_summaries"])
+#  tf.summary.image("log_energy_fn", log_energy_fn_plot, max_outputs=1, collections=["infrequent_summaries"])
 
 
 # Code for NIS model
@@ -321,22 +321,18 @@ def make_nis_graph(target_dist,
 
   tf.summary.scalar("elbo", train_elbo)
   tf.summary.scalar("eval_elbo", eval_elbo, collections=["infrequent_summaries"])
-
-  def f(x):
-    e = model.energy_fn(x)
-    e -= tf.reduce_min(e)
-    return tf.exp(e)
-
-  density_image_summary(mlp=f,
-                        num_points=FLAGS.density_num_points)
-  
+  density_image_summary(lambda x: tf.squeeze(model.energy_fn(x))
+                        + model.proposal.log_prob(x),
+                        FLAGS.density_num_points,
+                        'energy/nis')
+  sample_image_summary(model, 'density')
   global_step = tf.train.get_or_create_global_step()
   opt = tf.train.AdamOptimizer(learning_rate=lr)
   grads = opt.compute_gradients(-train_elbo)
   train_op = opt.apply_gradients(grads, global_step=global_step)
   return train_elbo, train_op, global_step
 
-def his_density_image_summary(his_model, num_points=50):
+def density_image_summary(log_density, num_points, title):
   if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
     bounds = (-2,2)
   elif FLAGS.target == CHECKERBOARD_DIST:
@@ -344,33 +340,36 @@ def his_density_image_summary(his_model, num_points=50):
 
   x = tf.range(bounds[0], bounds[1], delta=(bounds[1]-bounds[0])/float(num_points))
   X, Y = tf.meshgrid(x, x)
-  Z = tf.stack([X,Y], axis=-1)
-  unnorm_density = tf.exp(his_model.log_prob(Z, num_samples=100))
+  XY = tf.stack([X,Y], axis=-1)
 
-  def normalize(x):
-    no_inf = tf.where(tf.is_inf(x), tf.zeros_like(x), x)
-    ma = tf.reduce_max(no_inf)
-    mi = tf.reduce_min(no_inf)
-    no_inf_x = tf.where(tf.is_inf(x), tf.ones_like(x)*ma, x)
-    normalized = tf.clip_by_value((no_inf_x - mi)/(ma-mi), 0., 1.)
-    return normalized
+  log_z = log_density(XY)
+  log_Z = reduce_logavgexp(log_z)
+  z = tf.exp(log_z - log_Z)
 
-  tf_viridis = lambda x: tf.py_func(cm.get_cmap('viridis'), [x], [tf.float64])
-  
-  plot = tf_viridis(normalize(unnorm_density))
-  tf.summary.image("density", plot, max_outputs=1, collections=["infrequent_summaries"])
-  
-  log_energy_fn = tf.squeeze(his_model.energy_fn(Z))
-  energy_fn = tf.exp(log_energy_fn)
+  plot = tf.reshape(z, [1, num_points, num_points, 1]) #tf_viridis(z)
+  tf.summary.image(title, plot, max_outputs=1, collections=["infrequent_summaries"])
 
-  tf.summary.image("energy_fn",
-          tf_viridis(normalize(energy_fn)),
-          max_outputs=1,
-          collections=["infrequent_summaries"])
-  tf.summary.image("log_energy_fn",
-          tf_viridis(normalize(log_energy_fn)),
-          max_outputs=1,
-          collections=["infrequent_summaries"])
+def sample_image_summary(model, title, num_samples=100000, num_bins=50):
+  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
+    bounds = (-2,2)
+  elif FLAGS.target == CHECKERBOARD_DIST:
+    bounds = (0,1)
+  data = model.sample([num_samples])
+
+  #def log_gaussian_kde(data, eval_data):
+  #  kernel = gaussian_kde(data.T)
+  #  eval_data = np.reshape(eval_data, [FLAGS.density_num_points * FLAGS.density_num_points, -1]).T
+  #  return np.reshape(kernel.logpdf(eval_data), [FLAGS.density_num_points, -1])
+  #tf_log_gaussian_kde = lambda x: tf.to_float(tf.py_func(
+  #    log_gaussian_kde, [data, x], [tf.float64]))
+
+  #density_image_summary(tf_log_gaussian_kde, FLAGS.density_num_points, title)
+
+  def _hist2d(x, y):
+    return np.histogram2d(x, y, bins=num_bins, range=[bounds,bounds])[0]
+  tf_hist2d = lambda x, y: tf.py_func(_hist2d, [x, y], [tf.float64])
+  plot = tf.expand_dims(tf_hist2d(data[:, 0], data[:, 1]), -1)
+  tf.summary.image(title, plot, max_outputs=1, collections=["infrequent_summaries"])
 
 def make_his_graph(target_dist,
                    batch_size=16,
@@ -395,10 +394,14 @@ def make_his_graph(target_dist,
                   q_hidden_sizes=mlp_layers)
   elbo = model.log_prob(data)
   elbo = tf.reduce_mean(elbo)
-  eval_elbo = tf.reduce_mean(model.log_prob(eval_data))
+  eval_elbo = tf.reduce_mean(model.log_prob(eval_data, num_samples=100))
   tf.summary.scalar("elbo", elbo)
   tf.summary.scalar("eval_elbo", eval_elbo, collections=["infrequent_summaries"])
-  his_density_image_summary(model, num_points=FLAGS.density_num_points)
+  density_image_summary(lambda x: -model.hamiltonian_potential(x),
+                        FLAGS.density_num_points,
+                        'energy/hamiltonian_potential')
+  sample_image_summary(model, 'density')
+  #his_density_image_summary(model, num_points=FLAGS.density_num_points)
   global_step = tf.train.get_or_create_global_step()
   opt = tf.train.AdamOptimizer(learning_rate=lr)
   grads = opt.compute_gradients(-elbo)
