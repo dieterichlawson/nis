@@ -5,6 +5,7 @@ tfd = tfp.distributions
 import functools
 from . import base
 
+import pdb
 
 class HIS(object):
 
@@ -20,8 +21,20 @@ class HIS(object):
                learn_temps=False,
                learn_stepsize=False,
                scale_min=1e-5,
+               squash=False,
+               squash_eps=1e-6,
                dtype=tf.float32,
                name="his"):
+    if squash:
+      bijectors = [tfp.bijectors.AffineScalar(scale=256.),
+                   tfp.bijectors.AffineScalar(shift=-squash_eps/2.,
+                                              scale=(1. + squash_eps)),
+                   tfp.bijectors.Sigmoid(),
+                   ]
+      self.squash = tfp.bijectors.Chain(bijectors)
+    else:
+      self.squash = None
+
     self.data_dim = data_dim
     if data_mean is not None:
       self.data_mean = data_mean
@@ -115,19 +128,28 @@ class HIS(object):
     return self.proposal.log_prob(x_0) + self.momentum_proposal.log_prob(rho_0)
 
   def _log_prob(self, data, num_samples=1):
-    q = self.q(data)
+    if self.squash is not None:
+      x_T = self.squash.inverse(data)
+    else:
+      x_T = data
+
+    q = self.q(data)  # Maybe better to work w/ the untransformed data?
     rho_T = q.sample([num_samples])
-    x_T = tf.tile(data[tf.newaxis,:,:], [num_samples, 1,1])
+    x_T = tf.tile(x_T[tf.newaxis,:,:], [num_samples, 1,1])
 
     #tf.summary.histogram("energies", pes)
     #tf.summary.scalar("min_energies", tf.reduce_min(pes))
     #tf.summary.scalar("max_energies", tf.reduce_max(pes))
     log_joint = self._log_joint(x_T, rho_T)
     elbo = log_joint - q.log_prob(rho_T)
+    if self.squash is not None:
+      elbo += tf.tile(self.squash.inverse_log_det_jacobian(data, event_ndims=1)[None, :], [num_samples, 1])
     return tf.reduce_logsumexp(elbo, axis=0) - tf.log(tf.to_float(num_samples))
 
   def sample(self, sample_shape=[1]):
     x_0, rho_0 = self.proposal.sample(sample_shape=sample_shape), self.momentum_proposal.sample(sample_shape=sample_shape)
     x_T, _ = self._hamiltonian_dynamics(x_0, rho_0)
+    if self.squash is not None:
+      x_T = self.squash.forward(x_T)
     return x_T
 

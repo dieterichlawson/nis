@@ -139,7 +139,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   q_hidden_sizes = [int(x.strip()) for x in FLAGS.q_hidden_sizes.split(",")]
   energy_hidden_sizes = [int(x.strip()) for x in FLAGS.energy_hidden_sizes.split(",")]
   if model_type == "his":
-    proposal_data_dim = 2*data_dim
+    proposal_data_dim = data_dim
   elif model_type in ["nis", "bnis", "maf"]:
     proposal_data_dim = data_dim
   elif model_type == "bernoulli_vae" or model_type == "gaussian_vae":
@@ -250,6 +250,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             learn_stepsize=FLAGS.learn_his_stepsize,
             init_alpha=FLAGS.his_init_alpha,
             init_step_size=FLAGS.his_init_stepsize,
+            squash=FLAGS.squash,
             dtype=tf.float32)
   elif model_type == "maf":
     model = maf.MAF(
