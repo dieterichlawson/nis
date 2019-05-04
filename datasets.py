@@ -61,14 +61,13 @@ def _get_mnist(data_dir, batch_size, split="train", binarized=None, repeat=True,
     dataset = dataset.map(lambda im: tfd.Bernoulli(probs=im).sample())
   elif jitter:
     # Add uniform dequantization jitter
-    def jitter_im(im, alpha):
+    def jitter_im(im):
       jitter_noise = tfd.Uniform(low=tf.zeros_like(im), high=tf.ones_like(im)).sample()
       jittered_im = im * 255. + jitter_noise
       return jittered_im
-      #squashed_im = (jittered_im - 128.) * (1 - alpha) + 128.
-      #return squashed_im
 
-    dataset = dataset.map(lambda im: jitter_im(im, alpha=1e-6))
+    dataset = dataset.map(lambda im: jitter_im(im))
+    mean *= 255.
 
   if repeat:
     dataset = dataset.repeat()

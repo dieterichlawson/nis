@@ -38,6 +38,9 @@ class HIS(object):
     self.data_dim = data_dim
     if data_mean is not None:
       self.data_mean = data_mean
+
+      if squash:
+        self.unsquashed_data_mean = self.squash.inverse(data_mean)
     else:
       self.data_mean = tf.zeros((), dtype=dtype)
     self.T = T
@@ -130,6 +133,7 @@ class HIS(object):
   def _log_prob(self, data, num_samples=1):
     if self.squash is not None:
       x_T = self.squash.inverse(data)
+      x_T -= self.unsquashed_data_mean
     else:
       x_T = data
 
@@ -150,6 +154,7 @@ class HIS(object):
     x_0, rho_0 = self.proposal.sample(sample_shape=sample_shape), self.momentum_proposal.sample(sample_shape=sample_shape)
     x_T, _ = self._hamiltonian_dynamics(x_0, rho_0)
     if self.squash is not None:
+      x_T += self.unsquashed_data_mean
       x_T = self.squash.forward(x_T)
     return x_T
 
