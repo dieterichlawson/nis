@@ -20,7 +20,7 @@ tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis", "maf"],
                         "Proposal type to use.")
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
-                        ["bernoulli_vae","gaussian_vae","nis", "bnis", "his", "maf"],
+                        ["bernoulli_vae","gaussian_vae","nis", "bnis", "his", "maf", "hisvae"],
                         "Model type to use.")
 tf.app.flags.DEFINE_string("decoder_hidden_sizes", "300,300",
                            "Comma-delimited list denoting the hidden sizes of the VAE decoder.")
@@ -138,11 +138,9 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   decoder_hidden_sizes = [int(x.strip()) for x in FLAGS.decoder_hidden_sizes.split(",")]
   q_hidden_sizes = [int(x.strip()) for x in FLAGS.q_hidden_sizes.split(",")]
   energy_hidden_sizes = [int(x.strip()) for x in FLAGS.energy_hidden_sizes.split(",")]
-  if model_type == "his":
+  if model_type in ["nis", "bnis", "maf", "his"]:
     proposal_data_dim = data_dim
-  elif model_type in ["nis", "bnis", "maf"]:
-    proposal_data_dim = data_dim
-  elif model_type == "bernoulli_vae" or model_type == "gaussian_vae":
+  elif model_type in ["bernoulli_vae", "gaussian_vae", "hisvae"]:
     proposal_data_dim = FLAGS.latent_dim
 
   if proposal_type == "bernoulli_vae":
@@ -246,6 +244,22 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             data_mean=mean,
             energy_hidden_sizes=energy_hidden_sizes,
             q_hidden_sizes=q_hidden_sizes,
+            learn_temps=FLAGS.learn_his_temps,
+            learn_stepsize=FLAGS.learn_his_stepsize,
+            init_alpha=FLAGS.his_init_alpha,
+            init_step_size=FLAGS.his_init_stepsize,
+            squash=FLAGS.squash,
+            dtype=tf.float32)
+  elif model_type == "hisvae":
+    model = his.HISVAE(
+            latent_dim=FLAGS.latent_dim,
+            proposal=proposal,
+            T=FLAGS.his_T,
+            data_dim=data_dim,
+            data_mean=mean,
+            energy_hidden_sizes=energy_hidden_sizes,
+            q_hidden_sizes=q_hidden_sizes,
+            decoder_hidden_sizes=decoder_hidden_sizes,
             learn_temps=FLAGS.learn_his_temps,
             learn_stepsize=FLAGS.learn_his_stepsize,
             init_alpha=FLAGS.his_init_alpha,
