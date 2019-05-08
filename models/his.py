@@ -323,6 +323,14 @@ class HISVAE(object):
     x_0 = p_x_given_z.sample()
     rho_0 = self.momentum_proposal.sample(sample_shape=sample_shape)
     x_T, _ = self._hamiltonian_dynamics(x_0, rho_0, z, p_x_given_z)
+
+    initial_potential = self.hamiltonian_potential(x_0, z, p_x_given_z)
+    final_potential = self.hamiltonian_potential(x_T, z, p_x_given_z)
+    tf.summary.histogram("initial_potential", initial_potential)
+    tf.summary.histogram("diff_potential", final_potential - initial_potential)
+    final_energy = tf.squeeze(self.energy_fn(tf.concat([x_T, z], axis=-1)), axis=-1)
+    tf.summary.histogram("final_energy", final_energy)
+
     if self.squash is not None:
       x_T += self.unsquashed_data_mean
       x_T = self.squash.forward(x_T)
