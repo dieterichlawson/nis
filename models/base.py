@@ -98,7 +98,7 @@ def conditional_normal(
         scale_min=1e-5,
         truncate=False,
         squash=False,
-        squash_eps=1e-4,
+        squash_eps=1e-6,
         bias_init=None,
         scale_init=1.,
         nn_scale=True,
@@ -128,9 +128,9 @@ def conditional_normal(
     with tf.name_scope(name):
       tf.summary.histogram("scale", scale, family="scales")
       tf.summary.scalar("min_scale", tf.reduce_min(scale), family="scales")
-    if bias_init is not None:
-      loc = loc + bias_init
     if truncate:
+      if bias_init is not None:
+        loc = loc + bias_init
       loc = tf.math.sigmoid(loc)
       return tfd.Independent(
               TruncatedNormal(loc=loc, scale=scale, low=0., high=1.),
@@ -141,10 +141,13 @@ def conditional_normal(
                                               scale=(1. + squash_eps)),
                    tfp.bijectors.Sigmoid(),
                    ]
+      squash = tfp.bijectors.Chain(bijectors)
+      if bias_init is not None:
+        loc = loc + squash.inverse(bias_init)
       return tfd.Independent(
           tfd.TransformedDistribution(
               distribution=tfd.Normal(loc=loc, scale=scale),
-              bijector=tfp.bijectors.Chain(bijectors),
+              bijector=squash,
               name="SquashedNormalDistribution"),
           reinterpreted_batch_ndims=1)
     else:

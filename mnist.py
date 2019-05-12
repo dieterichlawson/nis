@@ -265,6 +265,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             init_alpha=FLAGS.his_init_alpha,
             init_step_size=FLAGS.his_init_stepsize,
             squash=FLAGS.squash,
+            kl_weight=kl_weight,
             dtype=tf.float32)
   elif model_type == "maf":
     model = maf.MAF(
