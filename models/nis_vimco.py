@@ -99,20 +99,22 @@ class NISVIMCO(object):
 
     # [batch_size, num_samples, K]
     loo_baseline = tf.reduce_logsumexp(
-            tf.concat([tiled_ls_baseline_loo, 
-                       tf.tile(tiled_log_energy_data[:,:,tf.newaxis], [1, 1, self.K])],
-                       axis=-1),
+            tf.stack([tiled_ls_baseline_loo, 
+                     tf.tile(tiled_log_energy_data[:,:,tf.newaxis], [1, 1, self.K])],
+                     axis=-1),
             axis=-1)
-    # Remove the num_samples dimension and divide by K*num_samples.
+    # Remove the num_samples dimension and divide by K-1
     # [batch_size, K]
-    loo_baseline = tf.reduce_logsumexp(loo_baseline, axis=1) - tf.log(tf.to_float(self.K * num_samples))
+    loo_baseline = tf.reduce_logsumexp(loo_baseline, axis=1) 
+    loo_baseline -= tf.log(tf.to_float(self.K))
     # [batch_size, K]
-    learning_signal = tf.stop_gradient(Z_hat - loo_baseline)[:,tf.newaxis]*tf.tile(
+    learning_signal = tf.stop_gradient(Z_hat[:,tf.newaxis] - loo_baseline)*tf.tile(
             tf.reduce_sum(vae_log_p_x_given_z, axis=0)[tf.newaxis,:], [batch_size, 1])
-
+    print(learning_signal)
     Z_hat_vimco = tf.reduce_sum(
             Z_hat[:,tf.newaxis] + learning_signal - tf.stop_gradient(learning_signal),
             axis=-1)
+    print(Z_hat_vimco)
     
     try:
       # Try giving the proposal vae lower bound num_samples if it can use it.
