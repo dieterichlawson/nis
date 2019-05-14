@@ -20,7 +20,8 @@ tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis", "maf"],
                         "Proposal type to use.")
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
-                        ["bernoulli_vae","gaussian_vae","nis", "bnis", "his", "maf", "hisvae"],
+                        ["bernoulli_vae","gaussian_vae","nis", "bnis", "his", "maf", "hisvae",
+                        "nis_vimco"],
                         "Model type to use.")
 tf.app.flags.DEFINE_string("decoder_hidden_sizes", "300,300",
                            "Comma-delimited list denoting the hidden sizes of the VAE decoder.")
@@ -138,7 +139,7 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
   decoder_hidden_sizes = [int(x.strip()) for x in FLAGS.decoder_hidden_sizes.split(",")]
   q_hidden_sizes = [int(x.strip()) for x in FLAGS.q_hidden_sizes.split(",")]
   energy_hidden_sizes = [int(x.strip()) for x in FLAGS.energy_hidden_sizes.split(",")]
-  if model_type in ["nis", "bnis", "maf", "his"]:
+  if model_type in ["nis", "bnis", "maf", "his", "nis_vimco"]:
     proposal_data_dim = data_dim
   elif model_type in ["bernoulli_vae", "gaussian_vae", "hisvae"]:
     proposal_data_dim = FLAGS.latent_dim
@@ -274,6 +275,15 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
         flow_layers=FLAGS.flow_layers,
         proposal=proposal,
         dtype=tf.float32)
+  elif model_type == "nis_vimco":
+    assert proposal_type == "bernoulli_vae"
+    model = nis_vimco.NISVIMCO(
+            proposal,
+            K=FLAGS.K,
+            data_dim=data_dim,
+            energy_hidden_sizes=energy_hidden_sizes,
+            data_mean=mean,
+            dtype=tf.float32)
 
   return model
 
