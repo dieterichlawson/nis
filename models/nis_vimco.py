@@ -65,20 +65,8 @@ class NISVIMCO(object):
     # [num_samples, K]
     log_energy_proposal = tf.reshape(self.energy_fn(vae_samples - self.data_mean),
             [num_samples, self.K])
-
-    # Compute part of the learning signal baseline for the gradient estimator.
-    # [num_samples, K, K]
-    tiled_log_energy_proposal = tf.tile(log_energy_proposal[:,:,tf.newaxis], [1,1, self.K])
-    tiled_log_energy_proposal_loo = tf.linalg.set_diag(
-            tiled_log_energy_proposal, tf.zeros(shape=[num_samples, self.K], dtype=self.dtype))
-    # [num_samples, K]
-    ls_baseline_loo = tf.reduce_logsumexp(tiled_log_energy_proposal_loo, axis=-1)
-    # [batch_size, num_samples, K]
-    tiled_ls_baseline_loo = tf.tile(ls_baseline_loo[tf.newaxis,:,:], [batch_size, 1, 1])
-
     # [num_samples]
     proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1)
-
     # [batch_size, num_samples]
     tiled_proposal_lse = tf.tile(proposal_lse[tf.newaxis,:], [batch_size, 1])
 
@@ -97,6 +85,17 @@ class NISVIMCO(object):
     # [batch_size]
     Z_hat = tf.reduce_logsumexp(Z_hat, axis=1) - tf.log(tf.to_float(num_samples))
 
+    # Compute part of the learning signal baseline for the gradient estimator.
+    # [num_samples, K, K]
+    tiled_log_energy_proposal = tf.tile(log_energy_proposal[:,:,tf.newaxis], [1,1, self.K])
+    tiled_log_energy_proposal_loo = tf.linalg.set_diag(
+            tiled_log_energy_proposal, 
+            tf.constant(-np.inf, shape=[num_samples, self.K], dtype=self.dtype))
+    # [num_samples, K]
+    ls_baseline_loo = tf.reduce_logsumexp(tiled_log_energy_proposal_loo, axis=-2)
+    # [batch_size, num_samples, K]
+    tiled_ls_baseline_loo = tf.tile(ls_baseline_loo[tf.newaxis,:,:], [batch_size, 1, 1])
+
     # [batch_size, num_samples, K]
     loo_baseline = tf.reduce_logsumexp(
             tf.stack([tiled_ls_baseline_loo, 
@@ -110,12 +109,10 @@ class NISVIMCO(object):
     # [batch_size, K]
     learning_signal = tf.stop_gradient(Z_hat[:,tf.newaxis] - loo_baseline)*tf.tile(
             tf.reduce_sum(vae_log_p_x_given_z, axis=0)[tf.newaxis,:], [batch_size, 1])
-    print(learning_signal)
     Z_hat_vimco = tf.reduce_sum(
             Z_hat[:,tf.newaxis] + learning_signal - tf.stop_gradient(learning_signal),
             axis=-1)
-    print(Z_hat_vimco)
-    
+ 
     try:
       # Try giving the proposal vae lower bound num_samples if it can use it.
       proposal_lp = self.proposal.log_prob(data, num_samples=num_samples)
