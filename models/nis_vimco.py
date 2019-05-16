@@ -65,6 +65,7 @@ class NISVIMCO(object):
     # [num_samples, K]
     log_energy_proposal = tf.reshape(self.energy_fn(vae_samples - self.data_mean),
             [num_samples, self.K])
+    tf.summary.histogram("log_energy_proposal", log_energy_proposal)
     # [num_samples]
     proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1)
     # [batch_size, num_samples]
@@ -73,6 +74,7 @@ class NISVIMCO(object):
     # Compute the log energy of the observed data.
     # [batch_size]
     log_energy_data = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
+    tf.summary.histogram("log_energy_data", log_energy_data)
     # [batch_size, num_samples]
     tiled_log_energy_data = tf.tile(log_energy_data[:, tf.newaxis], [1, num_samples])
 
@@ -84,6 +86,7 @@ class NISVIMCO(object):
     # Perform the log-sum-exp reduction for IWAE
     # [batch_size]
     Z_hat = tf.reduce_logsumexp(Z_hat, axis=1) - tf.log(tf.to_float(num_samples))
+    tf.summary.histogram("Z_hat", Z_hat)
 
     # Compute part of the learning signal baseline for the gradient estimator.
     # [num_samples, K, K]
@@ -92,7 +95,7 @@ class NISVIMCO(object):
             tiled_log_energy_proposal, 
             tf.constant(-np.inf, shape=[num_samples, self.K], dtype=self.dtype))
     # [num_samples, K]
-    ls_baseline_loo = tf.reduce_logsumexp(tiled_log_energy_proposal_loo, axis=-2)
+    ls_baseline_loo = tf.reduce_logsumexp(tiled_log_energy_proposal_loo, axis=1)
     # [batch_size, num_samples, K]
     tiled_ls_baseline_loo = tf.tile(ls_baseline_loo[tf.newaxis,:,:], [batch_size, 1, 1])
 
@@ -107,11 +110,14 @@ class NISVIMCO(object):
     loo_baseline = tf.reduce_logsumexp(loo_baseline, axis=1) 
     loo_baseline -= tf.log(tf.to_float(self.K))
     # [batch_size, K]
-    learning_signal = tf.stop_gradient(Z_hat[:,tf.newaxis] - loo_baseline)*tf.tile(
+    learning_signal = tf.stop_gradient(Z_hat[:,tf.newaxis] - loo_baseline)
+    tf.summary.histogram("learning_signal", learning_signal)
+    tf.summary.histogram("learning_signal_abs", tf.math.abs(learning_signal))
+    tf.summary.scalar("avg_learning_signal_abs", tf.reduce_mean(tf.math.abs(learning_signal)))
+    
+    score_fn = learning_signal*tf.tile(
             tf.reduce_sum(vae_log_p_x_given_z, axis=0)[tf.newaxis,:], [batch_size, 1])
-    Z_hat_vimco = tf.reduce_sum(
-            Z_hat[:,tf.newaxis] + learning_signal - tf.stop_gradient(learning_signal),
-            axis=-1)
+    Z_hat_vimco = Z_hat + tf.reduce_sum(score_fn - tf.stop_gradient(score_fn), axis=-1)
  
     try:
       # Try giving the proposal vae lower bound num_samples if it can use it.
