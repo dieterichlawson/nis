@@ -14,7 +14,8 @@ tf.logging.set_verbosity(tf.logging.INFO)
 tf.app.flags.DEFINE_enum("mode", "train", ["train", "eval"],
                          "Mode to run.")
 tf.app.flags.DEFINE_enum("dataset", "raw_mnist",
-                         ["raw_mnist", "jittered_mnist", "dynamic_mnist", "static_mnist"],
+                         ["raw_mnist", "jittered_mnist", "dynamic_mnist", "static_mnist",
+                          "fashion_mnist"],
                          "Dataset to use.")
 tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis", "maf"],
@@ -120,6 +121,9 @@ def get_dataset(dataset, batch_size, split, repeat=True, shuffle=True, initializ
             repeat=repeat, shuffle=shuffle, initializable=initializable)
   elif dataset == "jittered_mnist":
     data_batch, mean, itr = datasets.get_jittered_mnist(batch_size=batch_size, split=split,
+            repeat=repeat, shuffle=shuffle, initializable=initializable)
+  elif dataset == "fashion_mnist":
+    data_batch, mean, itr = datasets.get_fashion_mnist(batch_size=batch_size, split=split,
             repeat=repeat, shuffle=shuffle, initializable=initializable)
 
   return tf.cast(data_batch, tf.float32), mean, itr
