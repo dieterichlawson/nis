@@ -18,7 +18,7 @@ tf.app.flags.DEFINE_enum("dataset", "raw_mnist",
                           "fashion_mnist"],
                          "Dataset to use.")
 tf.app.flags.DEFINE_enum("proposal", "bernoulli_vae",
-                        ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis", "maf"],
+                        ["bernoulli_vae","gaussian_vae","gaussian", "nis", "bnis", "maf", "his"],
                         "Proposal type to use.")
 tf.app.flags.DEFINE_enum("model", "bernoulli_vae",
                         ["bernoulli_vae","gaussian_vae","nis", "bnis", "his", "maf", "hisvae",
@@ -176,6 +176,17 @@ def make_model(proposal_type, model_type, data_dim, mean, global_step):
             K=FLAGS.K,
             data_dim=proposal_data_dim,
             energy_hidden_sizes=energy_hidden_sizes,
+            dtype=tf.float32)
+  elif proposal_type == "his":
+    proposal = his.HIS(
+            T=FLAGS.his_T,
+            data_dim=proposal_data_dim,
+            energy_hidden_sizes=energy_hidden_sizes,
+            q_hidden_sizes=q_hidden_sizes,
+            learn_temps=FLAGS.learn_his_temps,
+            learn_stepsize=FLAGS.learn_his_stepsize,
+            init_alpha=FLAGS.his_init_alpha,
+            init_step_size=FLAGS.his_init_stepsize,
             dtype=tf.float32)
   elif proposal_type == "gaussian":
     proposal = tfd.MultivariateNormalDiag(

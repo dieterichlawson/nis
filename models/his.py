@@ -90,7 +90,7 @@ class HIS(object):
                                                         scale_diag=tf.ones([data_dim], dtype=dtype))
 
   def hamiltonian_potential(self, x):
-    pdb.set_trace()
+    #pdb.set_trace()
     return tf.squeeze(self.energy_fn(x), axis=-1) - self.proposal.log_prob(x)
 
   def _grad_hamiltonian_potential(self, x):
