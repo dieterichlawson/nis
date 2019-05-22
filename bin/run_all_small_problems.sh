@@ -31,7 +31,7 @@ python3 small_problems.py \
 python3 small_problems.py \
   --target=checkerboard  \
   --algo=his \
-  --his_T=5 \
+  --his_t=5 \
   --his_learn_stepsize \
   --his_learn_alpha \
   --batch_size=128 \
@@ -64,7 +64,7 @@ python3 small_problems.py \
 python3 small_problems.py \
   --target=two_rings \
   --algo=his \
-  --his_T=5 \
+  --his_t=5 \
   --his_learn_stepsize \
   --his_learn_alpha \
   --batch_size=128 \
@@ -100,7 +100,7 @@ python3 small_problems.py \
   --target=nine_gaussians \
   --nine_gaussians_variance=0.01 \
   --algo=his \
-  --his_T=5 \
+  --his_t=5 \
   --his_learn_stepsize \
   --his_learn_alpha \
   --batch_size=128 \
