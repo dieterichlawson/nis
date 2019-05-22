@@ -317,7 +317,7 @@ def make_nis_graph(target_dist,
                   energy_hidden_sizes=mlp_layers)
 
   train_elbo = tf.reduce_mean(model.log_prob(train_batch))
-  eval_elbo = tf.reduce_mean(model.log_prob(eval_batch))
+  eval_elbo = tf.reduce_mean(model.log_prob(eval_batch, num_samples=1000))
 
   tf.summary.scalar("elbo", train_elbo)
   tf.summary.scalar("eval_elbo", eval_elbo, collections=["infrequent_summaries"])
@@ -394,7 +394,7 @@ def make_his_graph(target_dist,
                   q_hidden_sizes=mlp_layers)
   elbo = model.log_prob(data)
   elbo = tf.reduce_mean(elbo)
-  eval_elbo = tf.reduce_mean(model.log_prob(eval_data, num_samples=100))
+  eval_elbo = tf.reduce_mean(model.log_prob(eval_data, num_samples=1000))
   tf.summary.scalar("elbo", elbo)
   tf.summary.scalar("eval_elbo", eval_elbo, collections=["infrequent_summaries"])
   density_image_summary(lambda x: -model.hamiltonian_potential(x),
@@ -419,7 +419,7 @@ def make_log_hooks(global_step, loss):
   hooks.append(loss_hook)
   if len(tf.get_collection("infrequent_summaries")) > 0:
     infrequent_summary_hook = tf.train.SummarySaverHook(
-        save_steps=500,
+        save_steps=1000,
         output_dir=FLAGS.logdir,
         summary_op=tf.summary.merge_all(key="infrequent_summaries")
     )
