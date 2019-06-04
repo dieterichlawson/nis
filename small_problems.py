@@ -11,6 +11,7 @@ tfd = tfp.distributions
 from models.base import mlp
 from models import his
 from models import nis
+from models import lars
 
 
 NINE_GAUSSIANS_DIST = "nine_gaussians"
@@ -46,6 +47,8 @@ tf.app.flags.DEFINE_integer("batch_size", 4,
                              "The number of examples per batch.")
 tf.app.flags.DEFINE_integer("eval_batch_size", 1000,
                             "The number of examples per eval batch.")
+tf.app.flags.DEFINE_integer("K", 128,
+                            "The number of samples for NIS and LARS.")
 tf.app.flags.DEFINE_integer("density_num_points", 100,
                             "Number of points per axis when plotting density.")
 tf.app.flags.DEFINE_string("logdir", "/tmp/lars",
@@ -170,99 +173,102 @@ def reduce_logavgexp(input_tensor, axis=None, keepdims=None, name=None):
                               keepdims=keepdims, 
                               name=name) - tf.log(tf.to_float(denominator)))
 
-def make_lars_loss(target_dist,
-                   batch_size=16,
-                   Z_batch_size=1024,
-                   accept_fn_layers=[10, 10], 
-                   log_Z_ema_decay=0.99,
-                   Z_ema=None,
-                   dtype=tf.float32):
-  # Create proposal as standard 2-D Gaussian
-  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2], dtype=dtype),
-                                        scale_diag=tf.ones([2], dtype=dtype))
-  
-  # Sample from target dist (multi-modal Gaussian)
-  z_r = target_dist.sample(batch_size)
-  
-  mlp_fn = functools.partial(
-             mlp,
-             layer_sizes=accept_fn_layers + [1],
-             final_activation=tf.math.log_sigmoid,
-             name="a")
-
-  # Compute log a(z), log pi(z), and log q(z)
-  log_a_z_r = tf.reshape(mlp_fn(z_r), [batch_size]) # [batch_size]
-  log_pi_z_r = proposal.log_prob(z_r) # [batch_size]
-  log_q_z_r = target_dist.log_prob(z_r) # [batch_size]
-
-  tf.summary.histogram("log_energy_data", log_a_z_r)
-  tf.summary.scalar("min_log_energy_data", tf.reduce_min(log_a_z_r))
-  tf.summary.scalar("max_log_energy_data", tf.reduce_max(log_a_z_r))
-
-  # Sample zs from proposal to estimate Z
-  z_s = proposal.sample(Z_batch_size) # [Z_batch_size, 2]
-  # Compute log a(z) for zs sampled from proposal
-  log_a_z_s = tf.reshape(mlp_fn(z_s), [Z_batch_size]) # [Z_batch_size]
-  log_ZS = tf.reduce_logsumexp(log_a_z_s) # []
-
-  tf.summary.histogram("log_energy_proposal", log_a_z_s)
-  tf.summary.scalar("min_log_energy_proposal", tf.reduce_min(log_a_z_s))
-  tf.summary.scalar("max_log_energy_proposal", tf.reduce_max(log_a_z_s))
-
-  if FLAGS.lars_allow_eval_target:
-    log_q_z_r = target_dist.log_prob(z_r) #[batch_size]
-    # Compute estimate of log Z using importance-weighted samples from minibatch
-    iw_log_a_z_r = tf.stop_gradient(log_pi_z_r - log_q_z_r) + log_a_z_r 
-    log_Z_curr = tf.reduce_logsumexp([tf.ones_like(iw_log_a_z_r)*log_ZS, iw_log_a_z_r], axis=0)
-    log_Z_curr -= tf.log(tf.to_float(Z_batch_size+1))
-    log_Z_curr_avg = reduce_logavgexp(log_Z_curr, axis=0) #[]
-  else:
-    log_Z_curr_avg = log_ZS - tf.log(tf.to_float(Z_batch_size))
-  
-  # Set up EMA of log_Z
-  log_Z_ema = tf.train.ExponentialMovingAverage(decay=log_Z_ema_decay)
-  log_Z_curr_avg_sg = tf.stop_gradient(log_Z_curr_avg)
-  maintain_log_Z_ema_op = log_Z_ema.apply([log_Z_curr_avg_sg])
-  
-  # In forward pass, log Z is the smoothed ema version of log Z
-  # In backward pass it is the current estimate of log Z, log_Z_curr_avg
-  log_Z = log_Z_curr_avg + tf.stop_gradient(log_Z_ema.average(log_Z_curr_avg_sg) - log_Z_curr_avg)
-  
-  loss = -(log_pi_z_r + log_a_z_r - log_Z[tf.newaxis]) # [batch_size]
-
-  tf.summary.scalar("log_Z_ema", log_Z_ema.average(log_Z_curr_avg_sg))
-  return tf.reduce_mean(loss), maintain_log_Z_ema_op, mlp_fn, proposal
+#def make_lars_loss(target_dist,
+#                   batch_size=16,
+#                   Z_batch_size=1024,
+#                   accept_fn_layers=[10, 10], 
+#                   log_Z_ema_decay=0.99,
+#                   Z_ema=None,
+#                   dtype=tf.float32):
+#  # Create proposal as standard 2-D Gaussian
+#  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2], dtype=dtype),
+#                                        scale_diag=tf.ones([2], dtype=dtype))
+#  
+#  # Sample from target dist (multi-modal Gaussian)
+#  z_r = target_dist.sample(batch_size)
+#  
+#  mlp_fn = functools.partial(
+#             mlp,
+#             layer_sizes=accept_fn_layers + [1],
+#             final_activation=tf.math.log_sigmoid,
+#             name="a")
+#
+#  # Compute log a(z), log pi(z), and log q(z)
+#  log_a_z_r = tf.reshape(mlp_fn(z_r), [batch_size]) # [batch_size]
+#  log_pi_z_r = proposal.log_prob(z_r) # [batch_size]
+#  log_q_z_r = target_dist.log_prob(z_r) # [batch_size]
+#
+#  tf.summary.histogram("log_energy_data", log_a_z_r)
+#  tf.summary.scalar("min_log_energy_data", tf.reduce_min(log_a_z_r))
+#  tf.summary.scalar("max_log_energy_data", tf.reduce_max(log_a_z_r))
+#
+#  # Sample zs from proposal to estimate Z
+#  z_s = proposal.sample(Z_batch_size) # [Z_batch_size, 2]
+#  # Compute log a(z) for zs sampled from proposal
+#  log_a_z_s = tf.reshape(mlp_fn(z_s), [Z_batch_size]) # [Z_batch_size]
+#  log_ZS = tf.reduce_logsumexp(log_a_z_s) # []
+#
+#  tf.summary.histogram("log_energy_proposal", log_a_z_s)
+#  tf.summary.scalar("min_log_energy_proposal", tf.reduce_min(log_a_z_s))
+#  tf.summary.scalar("max_log_energy_proposal", tf.reduce_max(log_a_z_s))
+#
+#  if FLAGS.lars_allow_eval_target:
+#    log_q_z_r = target_dist.log_prob(z_r) #[batch_size]
+#    # Compute estimate of log Z using importance-weighted samples from minibatch
+#    iw_log_a_z_r = tf.stop_gradient(log_pi_z_r - log_q_z_r) + log_a_z_r 
+#    log_Z_curr = tf.reduce_logsumexp([tf.ones_like(iw_log_a_z_r)*log_ZS, iw_log_a_z_r], axis=0)
+#    log_Z_curr -= tf.log(tf.to_float(Z_batch_size+1))
+#    log_Z_curr_avg = reduce_logavgexp(log_Z_curr, axis=0) #[]
+#  else:
+#    log_Z_curr_avg = log_ZS - tf.log(tf.to_float(Z_batch_size))
+#
+#  # Set up EMA of log_Z
+#  log_Z_ema = tf.train.ExponentialMovingAverage(decay=log_Z_ema_decay)
+#  log_Z_curr_avg_sg = tf.stop_gradient(log_Z_curr_avg)
+#  maintain_log_Z_ema_op = log_Z_ema.apply([log_Z_curr_avg_sg])
+#
+#  # In forward pass, log Z is the smoothed ema version of log Z
+#  # In backward pass it is the current estimate of log Z, log_Z_curr_avg
+#  log_Z = log_Z_curr_avg + tf.stop_gradient(log_Z_ema.average(log_Z_curr_avg_sg) - log_Z_curr_avg)
+#
+#  loss = -(log_pi_z_r + log_a_z_r - log_Z[tf.newaxis]) # [batch_size]
+#
+#  tf.summary.scalar("log_Z_ema", log_Z_ema.average(log_Z_curr_avg_sg))
+#  return tf.reduce_mean(loss), maintain_log_Z_ema_op, mlp_fn, proposal
 
 def make_lars_graph(target_dist,
+                    K=100,
                     batch_size=16,
                     eval_batch_size=1000,
                     lr=1e-4, 
                     mlp_layers=[10, 10], 
                     dtype=tf.float32):
-  loss, ema_op, mlp, proposal = make_lars_loss(target_dist, 
-                                     batch_size=batch_size, 
-                                     accept_fn_layers=mlp_layers,
-                                     dtype=dtype)
-  eval_loss, eval_ema_op, _, _ = make_lars_loss(target_dist, 
-                                             batch_size=eval_batch_size, 
-                                             accept_fn_layers=mlp_layers,
-                                             dtype=dtype)
-   
+
+  model = lars.SimpleLARS(
+            K=K,
+            data_dim=2,
+            accept_fn_layers=mlp_layers,
+            dtype=dtype)
+
+  train_data = target_dist.sample(batch_size)
+  log_p, ema_op = model.log_prob(train_data)
+  test_data = target_dist.sample(eval_batch_size)
+  eval_log_p, eval_ema_op = model.log_prob(test_data)
+
   global_step = tf.train.get_or_create_global_step()
   opt = tf.train.AdamOptimizer(lr)
-  grads = opt.compute_gradients(loss)
+  grads = opt.compute_gradients(-tf.reduce_mean(log_p))
   with tf.control_dependencies([ema_op, eval_ema_op]):
     apply_grads_op = opt.apply_gradients(grads, global_step=global_step)
-  # Create summaries.
 
-  density_image_summary(lambda x: tf.squeeze(mlp(x))
-                          + proposal.log_prob(x),
+  density_image_summary(lambda x: tf.squeeze(model.accept_fn(x))
+                          + model.proposal.log_prob(x),
                           FLAGS.density_num_points,
                           'energy/lars')
 
-  tf.summary.scalar("elbo", -loss)
-  tf.summary.scalar("eval_elbo", -eval_loss)
-  return loss, apply_grads_op, global_step
+  tf.summary.scalar("elbo", tf.reduce_mean(log_p))
+  tf.summary.scalar("eval_elbo", tf.reduce_mean(eval_log_p))
+  return -tf.reduce_mean(log_p), apply_grads_op, global_step
 
 #def density_image_summary(mlp, num_points=50, dtype=tf.float32):
 #  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
@@ -435,6 +441,7 @@ def main(unused_argv):
       print("Running LARS")
       loss, train_op, global_step = make_lars_graph(
         target_dist=target,
+        K=FLAGS.K,
         batch_size=FLAGS.batch_size, 
         eval_batch_size=FLAGS.eval_batch_size,
 	lr=FLAGS.learning_rate, 
@@ -446,7 +453,7 @@ def main(unused_argv):
         target_dist=target,
         batch_size=FLAGS.batch_size,
         eval_batch_size=FLAGS.eval_batch_size,
-        K=128,
+        K=FLAGS.K,
         lr=FLAGS.learning_rate,
         mlp_layers=energy_fn_layers,
         dtype=tf.float32)
