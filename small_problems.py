@@ -51,6 +51,8 @@ tf.app.flags.DEFINE_integer("K", 128,
                             "The number of samples for NIS and LARS.")
 tf.app.flags.DEFINE_integer("density_num_points", 100,
                             "Number of points per axis when plotting density.")
+tf.app.flags.DEFINE_integer("density_num_samples", 1000000,
+                            "Number of samples to use when plotting density.")
 tf.app.flags.DEFINE_string("logdir", "/tmp/lars",
                             "Directory for summaries and checkpoints.")
 tf.app.flags.DEFINE_integer("max_steps", int(1e6),
@@ -265,7 +267,8 @@ def make_lars_graph(target_dist,
                           + model.proposal.log_prob(x),
                           FLAGS.density_num_points,
                           'energy/lars')
-  sample_image_summary(model, 'sample_density', num_samples=100000, num_bins=50)
+  sample_image_summary(model, 'density', num_samples=FLAGS.density_num_samples,
+          num_bins=FLAGS.density_num_points)
 
 
   tf.summary.scalar("elbo", tf.reduce_mean(log_p))
@@ -333,7 +336,8 @@ def make_nis_graph(target_dist,
                         + model.proposal.log_prob(x),
                         FLAGS.density_num_points,
                         'energy/nis')
-  sample_image_summary(model, 'density')
+  sample_image_summary(model, 'density', num_samples=FLAGS.density_num_samples,
+          num_bins=FLAGS.density_num_points)
   global_step = tf.train.get_or_create_global_step()
   opt = tf.train.AdamOptimizer(learning_rate=lr)
   grads = opt.compute_gradients(-train_elbo)
@@ -409,7 +413,8 @@ def make_his_graph(target_dist,
   density_image_summary(lambda x: -model.hamiltonian_potential(x),
                         FLAGS.density_num_points,
                         'energy/hamiltonian_potential')
-  sample_image_summary(model, 'density')
+  sample_image_summary(model, 'density', num_samples=FLAGS.density_num_samples,
+          num_bins=FLAGS.density_num_points)
   #his_density_image_summary(model, num_points=FLAGS.density_num_points)
   global_step = tf.train.get_or_create_global_step()
   opt = tf.train.AdamOptimizer(learning_rate=lr)
