@@ -1,3 +1,4 @@
+import sys
 import functools
 import numpy as np
 
@@ -74,11 +75,15 @@ class SimpleLARS(object):
      
     def while_body(z, accept):
       new_z = self.proposal.sample(sample_shape)
-      accept_prob = tf.reshape(tf.exp(self.accept_fn(z - self.data_mean)), sample_shape)
-      new_accept = tf.math.less_equal(tf.random_uniform(shape=sample_shape), accept_prob)
+      accept_prob = tf.reshape(tf.exp(self.accept_fn(new_z - self.data_mean)), sample_shape)
+      new_accept = tf.math.less_equal(
+        tf.random_uniform(shape=sample_shape, minval=0., maxval=1.), 
+        accept_prob)
       accepted = tf.logical_or(accept, new_accept)
       swap = tf.math.logical_and(tf.math.logical_not(accept), new_accept)
-      z = tf.where(swap, z, new_z)
+      print_op = tf.print("Accepted: ", accepted, output_stream=sys.stderr)
+      #with tf.control_dependencies([print_op]):
+      z = tf.where(swap, new_z, z)
       return z, accepted
     
     def while_cond(z, accept):

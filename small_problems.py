@@ -265,6 +265,8 @@ def make_lars_graph(target_dist,
                           + model.proposal.log_prob(x),
                           FLAGS.density_num_points,
                           'energy/lars')
+  sample_image_summary(model, 'sample_density', num_samples=100000, num_bins=50)
+
 
   tf.summary.scalar("elbo", tf.reduce_mean(log_p))
   tf.summary.scalar("eval_elbo", tf.reduce_mean(eval_log_p))
@@ -373,6 +375,7 @@ def sample_image_summary(model, title, num_samples=100000, num_bins=50):
 
   def _hist2d(x, y):
     return np.histogram2d(x, y, bins=num_bins, range=[bounds,bounds])[0]
+
   tf_hist2d = lambda x, y: tf.py_func(_hist2d, [x, y], [tf.float64])
   plot = tf.expand_dims(tf_hist2d(data[:, 0], data[:, 1]), -1)
   tf.summary.image(title, plot, max_outputs=1, collections=["infrequent_summaries"])
