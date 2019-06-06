@@ -37,14 +37,14 @@ tf.app.flags.DEFINE_boolean("his_learn_stepsize", False,
                             "Allow HIS to learn the stepsize")
 tf.app.flags.DEFINE_boolean("his_learn_alpha", False,
                             "Allow HIS to learn alpha.")
-tf.app.flags.DEFINE_integer("eval_batch_size", 1000,
-                            "The number of examples per eval batch.")
 tf.app.flags.DEFINE_integer("K", 128,
                             "The number of samples for NIS and LARS.")
-tf.app.flags.DEFINE_integer("density_num_points", 100,
+tf.app.flags.DEFINE_integer("num_bins", 500,
                             "Number of points per axis when plotting density.")
-tf.app.flags.DEFINE_integer("density_num_samples", 1000000,
+tf.app.flags.DEFINE_integer("num_samples", 10000000,
                             "Number of samples to use when plotting density.")
+tf.app.flags.DEFINE_integer("batch_size", 100000,
+                            "The batch size.")
 tf.app.flags.DEFINE_string("logdir", "/tmp/lars",
                             "Directory for summaries and checkpoints.")
 FLAGS = tf.app.flags.FLAGS
@@ -101,9 +101,9 @@ def main(unused_argv):
     with tf.train.SingularMonitoredSession(
             checkpoint_dir=FLAGS.logdir) as sess:
       make_sample_density_summary(sess, samples, "density", 
-              max_samples_per_batch=FLAGS.eval_batch_size,
-              num_samples=FLAGS.density_num_samples, 
-              num_bins=FLAGS.density_num_points)
+              max_samples_per_batch=FLAGS.batch_size,
+              num_samples=FLAGS.num_samples, 
+              num_bins=FLAGS.num_bins)
 
 if __name__ == "__main__":
   tf.app.run(main)
