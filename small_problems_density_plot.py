@@ -97,7 +97,7 @@ def make_lars_density_summary(
   log_Z = reduce_logavgexp(log_z)
   z = tf.exp(log_z - log_Z)
 
-  plot = tf.reshape(z, [num_bins, num_bins, 1])
+  plot = tf.reshape(z, [num_bins, num_bins])
   return plot
 
 def main(unused_argv):
