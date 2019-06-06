@@ -1,4 +1,5 @@
 import math
+import os
 import numpy as np
 from matplotlib import cm
 from scipy.stats import gaussian_kde
@@ -20,6 +21,7 @@ CHECKERBOARD_DIST = "checkerboard"
 TARGET_DISTS = [NINE_GAUSSIANS_DIST, TWO_RINGS_DIST, CHECKERBOARD_DIST]
 
 tf.logging.set_verbosity(tf.logging.INFO)
+tf.app.flags.DEFINE_enum("mode", "train", ["train", "density_img"], "Mode to run.")
 tf.app.flags.DEFINE_enum("algo", "lars", ["lars","nis", "his"],
                          "The algorithm to run.")
 tf.app.flags.DEFINE_boolean("lars_allow_eval_target", False,
@@ -174,69 +176,6 @@ def reduce_logavgexp(input_tensor, axis=None, keepdims=None, name=None):
                               axis=axis, 
                               keepdims=keepdims, 
                               name=name) - tf.log(tf.to_float(denominator)))
-
-#def make_lars_loss(target_dist,
-#                   batch_size=16,
-#                   Z_batch_size=1024,
-#                   accept_fn_layers=[10, 10], 
-#                   log_Z_ema_decay=0.99,
-#                   Z_ema=None,
-#                   dtype=tf.float32):
-#  # Create proposal as standard 2-D Gaussian
-#  proposal = tfd.MultivariateNormalDiag(loc=tf.zeros([2], dtype=dtype),
-#                                        scale_diag=tf.ones([2], dtype=dtype))
-#  
-#  # Sample from target dist (multi-modal Gaussian)
-#  z_r = target_dist.sample(batch_size)
-#  
-#  mlp_fn = functools.partial(
-#             mlp,
-#             layer_sizes=accept_fn_layers + [1],
-#             final_activation=tf.math.log_sigmoid,
-#             name="a")
-#
-#  # Compute log a(z), log pi(z), and log q(z)
-#  log_a_z_r = tf.reshape(mlp_fn(z_r), [batch_size]) # [batch_size]
-#  log_pi_z_r = proposal.log_prob(z_r) # [batch_size]
-#  log_q_z_r = target_dist.log_prob(z_r) # [batch_size]
-#
-#  tf.summary.histogram("log_energy_data", log_a_z_r)
-#  tf.summary.scalar("min_log_energy_data", tf.reduce_min(log_a_z_r))
-#  tf.summary.scalar("max_log_energy_data", tf.reduce_max(log_a_z_r))
-#
-#  # Sample zs from proposal to estimate Z
-#  z_s = proposal.sample(Z_batch_size) # [Z_batch_size, 2]
-#  # Compute log a(z) for zs sampled from proposal
-#  log_a_z_s = tf.reshape(mlp_fn(z_s), [Z_batch_size]) # [Z_batch_size]
-#  log_ZS = tf.reduce_logsumexp(log_a_z_s) # []
-#
-#  tf.summary.histogram("log_energy_proposal", log_a_z_s)
-#  tf.summary.scalar("min_log_energy_proposal", tf.reduce_min(log_a_z_s))
-#  tf.summary.scalar("max_log_energy_proposal", tf.reduce_max(log_a_z_s))
-#
-#  if FLAGS.lars_allow_eval_target:
-#    log_q_z_r = target_dist.log_prob(z_r) #[batch_size]
-#    # Compute estimate of log Z using importance-weighted samples from minibatch
-#    iw_log_a_z_r = tf.stop_gradient(log_pi_z_r - log_q_z_r) + log_a_z_r 
-#    log_Z_curr = tf.reduce_logsumexp([tf.ones_like(iw_log_a_z_r)*log_ZS, iw_log_a_z_r], axis=0)
-#    log_Z_curr -= tf.log(tf.to_float(Z_batch_size+1))
-#    log_Z_curr_avg = reduce_logavgexp(log_Z_curr, axis=0) #[]
-#  else:
-#    log_Z_curr_avg = log_ZS - tf.log(tf.to_float(Z_batch_size))
-#
-#  # Set up EMA of log_Z
-#  log_Z_ema = tf.train.ExponentialMovingAverage(decay=log_Z_ema_decay)
-#  log_Z_curr_avg_sg = tf.stop_gradient(log_Z_curr_avg)
-#  maintain_log_Z_ema_op = log_Z_ema.apply([log_Z_curr_avg_sg])
-#
-#  # In forward pass, log Z is the smoothed ema version of log Z
-#  # In backward pass it is the current estimate of log Z, log_Z_curr_avg
-#  log_Z = log_Z_curr_avg + tf.stop_gradient(log_Z_ema.average(log_Z_curr_avg_sg) - log_Z_curr_avg)
-#
-#  loss = -(log_pi_z_r + log_a_z_r - log_Z[tf.newaxis]) # [batch_size]
-#
-#  tf.summary.scalar("log_Z_ema", log_Z_ema.average(log_Z_curr_avg_sg))
-#  return tf.reduce_mean(loss), maintain_log_Z_ema_op, mlp_fn, proposal
 
 def make_lars_graph(target_dist,
                     K=100,
@@ -440,7 +379,7 @@ def make_log_hooks(global_step, loss):
     hooks.append(infrequent_summary_hook)
   return hooks
 
-def main(unused_argv):
+def run_train():
   g = tf.Graph()
   with g.as_default():
     target = get_target_distribution(FLAGS.target)
@@ -495,6 +434,85 @@ def main(unused_argv):
           break
         # run a step
         _, cur_step = sess.run([train_op, global_step])
+
+def make_lars_density_summary_graph(session, K=1024, num_points=200, 
+        num_samples=10000000, mlp_layers=[10,10], dtype=tf.float32):
+  model = lars.SimpleLARS(
+            K=K,
+            data_dim=2,
+            accept_fn_layers=mlp_layers,
+            dtype=dtype)
+
+  sample_image_summary(model, 'density', num_samples=FLAGS.density_num_samples,
+          num_bins=FLAGS.density_num_points)
+
+
+  tf.summary.scalar("elbo", tf.reduce_mean(log_p))
+  tf.summary.scalar("eval_elbo", tf.reduce_mean(eval_log_p))
+  return -tf.reduce_mean(log_p), apply_grads_op, global_step
+
+def make_sample_density_summary(
+        session, 
+        data, 
+        title, 
+        max_samples_per_batch=100000, 
+        num_samples=1000000, 
+        num_bins=100):
+  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
+    bounds = (-2,2)
+  elif FLAGS.target == CHECKERBOARD_DIST:
+    bounds = (0,1)
+  num_batches = math.ceil(num_samples / float(max_samples_per_batch))
+  hist = None
+  for i in range(num_batches):
+    tf.logging.info("Processing batch %d / %d of samples for density image." % (i+1, num_batches))
+    s = session.run(data)
+    if hist is None:
+      hist = np.histogram2d(s[:,0], s[:,1], bins=num_bins, range=[bounds, bounds])[0]
+    else:
+      hist += np.histogram2d(s[:,0], s[:,1], bins=num_bins, range=[bounds, bounds])[0]
+    np.save(os.path.join(FLAGS.logdir, "density"), hist)
+  tf.logging.info("Density image saved to %s" %  os.path.join(FLAGS.logdir, "density.npy"))
+
+def run_density():
+  g = tf.Graph()
+  with g.as_default():
+    target = get_target_distribution(FLAGS.target)
+    energy_fn_layers = [int(x.strip()) for x in FLAGS.energy_fn_sizes.split(",")]
+    if FLAGS.algo == "lars":
+      print("Running LARS")
+      model = lars.SimpleLARS(
+          K=FLAGS.K,
+          data_dim=2,
+          accept_fn_layers=energy_fn_layers)
+    elif FLAGS.algo == "nis":
+      print("Running NIS")
+      model = nis.NIS(K=FLAGS.K,
+                data_dim=2,
+                energy_hidden_sizes=energy_fn_layers)
+    elif FLAGS.algo == "his":
+      print("Running HIS")
+      model = his.HIS(FLAGS.his_t,
+                data_dim=2,
+                energy_hidden_sizes=energy_fn_layers,
+                init_step_size=FLAGS.his_stepsize,
+                learn_stepsize=FLAGS.his_learn_stepsize,
+                init_alpha=FLAGS.his_alpha,
+                learn_temps=FLAGS.his_learn_alpha,
+                q_hidden_sizes=energy_fn_layers)
+    samples = model.sample([FLAGS.eval_batch_size])
+    with tf.train.SingularMonitoredSession(
+            checkpoint_dir=FLAGS.logdir) as sess:
+      make_sample_density_summary(sess, samples, "density", 
+              max_samples_per_batch=FLAGS.eval_batch_size,
+              num_samples=FLAGS.density_num_samples, 
+              num_bins=FLAGS.density_num_points)
+
+def main(unused_argv):
+  if FLAGS.mode == "train":
+    run_train()
+  elif FLAGS.mode == "density_img":
+    run_density()
 
 if __name__ == "__main__":
   tf.app.run(main)
