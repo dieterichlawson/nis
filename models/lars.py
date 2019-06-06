@@ -38,7 +38,6 @@ class SimpleLARS(object):
     else:
       self.proposal = proposal
 
-
   def log_prob(self, data):
     batch_size = tf.shape(data)[0]
     # Compute log a(z), log pi(z), and log q(z)
