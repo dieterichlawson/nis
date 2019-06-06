@@ -21,7 +21,6 @@ CHECKERBOARD_DIST = "checkerboard"
 TARGET_DISTS = [NINE_GAUSSIANS_DIST, TWO_RINGS_DIST, CHECKERBOARD_DIST]
 
 tf.logging.set_verbosity(tf.logging.INFO)
-tf.app.flags.DEFINE_enum("mode", "train", ["train", "density_img"], "Mode to run.")
 tf.app.flags.DEFINE_enum("algo", "lars", ["lars","nis", "his"],
                          "The algorithm to run.")
 tf.app.flags.DEFINE_boolean("lars_allow_eval_target", False,
@@ -51,10 +50,6 @@ tf.app.flags.DEFINE_integer("eval_batch_size", 1000,
                             "The number of examples per eval batch.")
 tf.app.flags.DEFINE_integer("K", 128,
                             "The number of samples for NIS and LARS.")
-tf.app.flags.DEFINE_integer("density_num_points", 100,
-                            "Number of points per axis when plotting density.")
-tf.app.flags.DEFINE_integer("density_num_samples", 1000000,
-                            "Number of samples to use when plotting density.")
 tf.app.flags.DEFINE_string("logdir", "/tmp/lars",
                             "Directory for summaries and checkpoints.")
 tf.app.flags.DEFINE_integer("max_steps", int(1e6),
@@ -379,7 +374,7 @@ def make_log_hooks(global_step, loss):
     hooks.append(infrequent_summary_hook)
   return hooks
 
-def run_train():
+def main(unused_argv):
   g = tf.Graph()
   with g.as_default():
     target = get_target_distribution(FLAGS.target)
@@ -434,85 +429,6 @@ def run_train():
           break
         # run a step
         _, cur_step = sess.run([train_op, global_step])
-
-def make_lars_density_summary_graph(session, K=1024, num_points=200, 
-        num_samples=10000000, mlp_layers=[10,10], dtype=tf.float32):
-  model = lars.SimpleLARS(
-            K=K,
-            data_dim=2,
-            accept_fn_layers=mlp_layers,
-            dtype=dtype)
-
-  sample_image_summary(model, 'density', num_samples=FLAGS.density_num_samples,
-          num_bins=FLAGS.density_num_points)
-
-
-  tf.summary.scalar("elbo", tf.reduce_mean(log_p))
-  tf.summary.scalar("eval_elbo", tf.reduce_mean(eval_log_p))
-  return -tf.reduce_mean(log_p), apply_grads_op, global_step
-
-def make_sample_density_summary(
-        session, 
-        data, 
-        title, 
-        max_samples_per_batch=100000, 
-        num_samples=1000000, 
-        num_bins=100):
-  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
-    bounds = (-2,2)
-  elif FLAGS.target == CHECKERBOARD_DIST:
-    bounds = (0,1)
-  num_batches = math.ceil(num_samples / float(max_samples_per_batch))
-  hist = None
-  for i in range(num_batches):
-    tf.logging.info("Processing batch %d / %d of samples for density image." % (i+1, num_batches))
-    s = session.run(data)
-    if hist is None:
-      hist = np.histogram2d(s[:,0], s[:,1], bins=num_bins, range=[bounds, bounds])[0]
-    else:
-      hist += np.histogram2d(s[:,0], s[:,1], bins=num_bins, range=[bounds, bounds])[0]
-    np.save(os.path.join(FLAGS.logdir, "density"), hist)
-  tf.logging.info("Density image saved to %s" %  os.path.join(FLAGS.logdir, "density.npy"))
-
-def run_density():
-  g = tf.Graph()
-  with g.as_default():
-    target = get_target_distribution(FLAGS.target)
-    energy_fn_layers = [int(x.strip()) for x in FLAGS.energy_fn_sizes.split(",")]
-    if FLAGS.algo == "lars":
-      print("Running LARS")
-      model = lars.SimpleLARS(
-          K=FLAGS.K,
-          data_dim=2,
-          accept_fn_layers=energy_fn_layers)
-    elif FLAGS.algo == "nis":
-      print("Running NIS")
-      model = nis.NIS(K=FLAGS.K,
-                data_dim=2,
-                energy_hidden_sizes=energy_fn_layers)
-    elif FLAGS.algo == "his":
-      print("Running HIS")
-      model = his.HIS(FLAGS.his_t,
-                data_dim=2,
-                energy_hidden_sizes=energy_fn_layers,
-                init_step_size=FLAGS.his_stepsize,
-                learn_stepsize=FLAGS.his_learn_stepsize,
-                init_alpha=FLAGS.his_alpha,
-                learn_temps=FLAGS.his_learn_alpha,
-                q_hidden_sizes=energy_fn_layers)
-    samples = model.sample([FLAGS.eval_batch_size])
-    with tf.train.SingularMonitoredSession(
-            checkpoint_dir=FLAGS.logdir) as sess:
-      make_sample_density_summary(sess, samples, "density", 
-              max_samples_per_batch=FLAGS.eval_batch_size,
-              num_samples=FLAGS.density_num_samples, 
-              num_bins=FLAGS.density_num_points)
-
-def main(unused_argv):
-  if FLAGS.mode == "train":
-    run_train()
-  elif FLAGS.mode == "density_img":
-    run_density()
 
 if __name__ == "__main__":
   tf.app.run(main)
