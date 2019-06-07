@@ -13,19 +13,14 @@ from models.base import mlp
 from models import his
 from models import nis
 from models import lars
-
-
-NINE_GAUSSIANS_DIST = "nine_gaussians"
-TWO_RINGS_DIST = "two_rings"
-CHECKERBOARD_DIST = "checkerboard"
-TARGET_DISTS = [NINE_GAUSSIANS_DIST, TWO_RINGS_DIST, CHECKERBOARD_DIST]
+import small_problems_dists as dists
 
 tf.logging.set_verbosity(tf.logging.INFO)
 tf.app.flags.DEFINE_enum("algo", "lars", ["lars","nis", "his"],
                          "The algorithm to run.")
 tf.app.flags.DEFINE_boolean("lars_allow_eval_target", False,
                             "Whether LARS is allowed to evaluate the target density.")
-tf.app.flags.DEFINE_enum("target", NINE_GAUSSIANS_DIST,  TARGET_DISTS,
+tf.app.flags.DEFINE_enum("target", dists.NINE_GAUSSIANS_DIST,  dists.TARGET_DISTS,
                          "Distribution to draw data from.")
 tf.app.flags.DEFINE_float("nine_gaussians_variance", 0.1,
                           "Variance for the mixture components in the nine gaussians.")
@@ -46,6 +41,10 @@ tf.app.flags.DEFINE_float("learning_rate", 1e-4,
                            "The learning rate to use for ADAM or SGD.")
 tf.app.flags.DEFINE_integer("batch_size", 4,
                              "The number of examples per batch.")
+tf.app.flags.DEFINE_integer("density_num_bins", 100,
+                            "Number of points per axis when plotting density.")
+tf.app.flags.DEFINE_integer("density_num_samples", 100000,
+                            "Number of samples to use when plotting density.")
 tf.app.flags.DEFINE_integer("eval_batch_size", 1000,
                             "The number of examples per eval batch.")
 tf.app.flags.DEFINE_integer("K", 128,
@@ -59,108 +58,6 @@ tf.app.flags.DEFINE_integer("summarize_every", int(1e3),
 FLAGS = tf.app.flags.FLAGS
 
 tf_viridis = lambda x: tf.py_func(cm.get_cmap('viridis'), [x], [tf.float64])
-
-class Ring2D(tfd.Distribution):
-  
-  def __init__(self,
-               radius_dist=None,
-               dtype=tf.float32,
-               validate_args=False,
-               allow_nan_stats=True,
-               name="Ring"):
-    parameters = dict(locals())
-    loc = tf.zeros([2], dtype=dtype)
-    if radius_dist is None:
-      radius_dist = tfd.Normal(loc=1., scale=0.1)
-    self._loc = loc
-    self._radius_dist= radius_dist
-    super(Ring2D, self).__init__(
-        dtype=dtype,
-        reparameterization_type=tfd.NOT_REPARAMETERIZED,
-        validate_args=validate_args,
-        allow_nan_stats=allow_nan_stats,
-        parameters=parameters,
-        graph_parents=[self._loc],
-        name=name)
-
-  @property
-  def loc(self):
-    """Distribution parameter for the mean."""
-    return self._loc
-  
-  def _batch_shape_tensor(self):
-    return tf.broadcast_dynamic_shape(
-      tf.shape(self._loc)[:-1],
-      self._radius_dist.batch_shape_tensor)
-
-  def _batch_shape(self):
-    return tf.broadcast_static_shape(
-      self._loc.get_shape()[:-1],
-      self._radius_dist.batch_shape)
-  
-  def _event_shape_tensor(self):
-    return tf.constant([2], dtype=dtypes.int32)
-
-  def _event_shape(self):
-    return tf.TensorShape([2])
-  
-  def _sample_n(self, n, seed=None):
-    new_shape = tf.concat([[n], self.batch_shape_tensor()], 0)
-    thetas = tf.random_uniform(
-        new_shape, seed=seed, dtype=self.dtype)*2.*math.pi
-    rs = self._radius_dist.sample(new_shape, seed=seed)
-    vecs = tf.stack([tf.math.sin(thetas), tf.math.cos(thetas)], axis=-1)
-    
-    sample = vecs*tf.expand_dims(rs, axis=-1)
-    return tf.cast(sample, self.dtype)
-
-  def _log_prob(self, event):
-    radii = tf.norm(event, axis=-1, ord=2)
-    return self._radius_dist.log_prob(radii) - tf.log(2*math.pi*radii)
-
-def two_rings_dist(scale=0.1):
-  r_dist = tfd.Mixture(
-    cat=tfd.Categorical(probs=[1., 1.]),
-    components=[tfd.Normal(loc=0.6, scale=scale), tfd.Normal(loc=1.3,scale=scale)])
-  return Ring2D(radius_dist=r_dist)
- 
-def checkerboard_dist(num_splits=4):
-  bounds = np.linspace(0., 1., num=(num_splits+1), endpoint=True)
-  uniforms = []
-  for i in range(num_splits):
-    for j in range(num_splits):
-      if ((i % 2 == 0 and j % 2 == 0) or
-          (i % 2 != 0 and j % 2 != 0)):
-        low = tf.convert_to_tensor([bounds[i], bounds[j]], dtype=tf.float32)
-        high = tf.convert_to_tensor([bounds[i+1], bounds[j+1]], dtype=tf.float32)
-        u = tfd.Uniform(low=low, high=high)
-        u = tfd.Independent(u, reinterpreted_batch_ndims=1)
-        uniforms.append(u)
-  return tfd.Mixture(
-    cat=tfd.Categorical(probs=[1.]*len(uniforms)),
-    components=uniforms)
-
-def nine_gaussians_dist(variance=0.1):
-  """Creates a mixture of 9 2-D gaussians on a 3x3 grid centered at 0."""
-  components = []
-  for i in [-1., 0. , 1.]:
-    for j in [-1., 0. , 1.]:
-      loc = tf.constant([i,j], dtype=tf.float32)
-      scale = tf.ones_like(loc)*tf.sqrt(variance)
-      components.append(tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale))
-  return tfd.Mixture(
-    cat=tfd.Categorical(probs=tf.ones([9], dtype=tf.float32)/9.),
-    components=components)
-
-def get_target_distribution(name):
-  if name == NINE_GAUSSIANS_DIST:
-    return nine_gaussians_dist(variance=FLAGS.nine_gaussians_variance)
-  elif name == TWO_RINGS_DIST:
-    return two_rings_dist()
-  elif name == CHECKERBOARD_DIST:
-    return checkerboard_dist()
-  else:
-    raise ValueError("Invalid target name.")
 
 def reduce_logavgexp(input_tensor, axis=None, keepdims=None, name=None):
   dims = tf.shape(input_tensor)
@@ -199,10 +96,10 @@ def make_lars_graph(target_dist,
 
   density_image_summary(lambda x: tf.squeeze(model.accept_fn(x))
                           + model.proposal.log_prob(x),
-                          FLAGS.density_num_points,
+                          FLAGS.density_num_bins,
                           'energy/lars')
   sample_image_summary(model, 'density', num_samples=FLAGS.density_num_samples,
-          num_bins=FLAGS.density_num_points)
+          num_bins=FLAGS.density_num_bins)
 
 
   tf.summary.scalar("elbo", tf.reduce_mean(log_p))
@@ -210,9 +107,9 @@ def make_lars_graph(target_dist,
   return -tf.reduce_mean(log_p), apply_grads_op, global_step
 
 #def density_image_summary(mlp, num_points=50, dtype=tf.float32):
-#  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
+#  if FLAGS.target == dists.NINE_GAUSSIANS_DIST or FLAGS.target == dists.TWO_RINGS_DIST:
 #    bounds = (-2,2)
-#  elif FLAGS.target == CHECKERBOARD_DIST:
+#  elif FLAGS.target == dists.CHECKERBOARD_DIST:
 #    bounds = (0,1)
 #
 #  x = tf.range(bounds[0], bounds[1], delta=(bounds[1] - bounds[0])/float(num_points))
@@ -268,10 +165,10 @@ def make_nis_graph(target_dist,
   tf.summary.scalar("eval_elbo", eval_elbo, collections=["infrequent_summaries"])
   density_image_summary(lambda x: tf.squeeze(model.energy_fn(x))
                         + model.proposal.log_prob(x),
-                        FLAGS.density_num_points,
+                        FLAGS.density_num_bins,
                         'energy/nis')
   sample_image_summary(model, 'density', num_samples=FLAGS.density_num_samples,
-          num_bins=FLAGS.density_num_points)
+          num_bins=FLAGS.density_num_bins)
   global_step = tf.train.get_or_create_global_step()
   opt = tf.train.AdamOptimizer(learning_rate=lr)
   grads = opt.compute_gradients(-train_elbo)
@@ -279,9 +176,9 @@ def make_nis_graph(target_dist,
   return train_elbo, train_op, global_step
 
 def density_image_summary(log_density, num_points, title):
-  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
+  if FLAGS.target == dists.NINE_GAUSSIANS_DIST or FLAGS.target == dists.TWO_RINGS_DIST:
     bounds = (-2,2)
-  elif FLAGS.target == CHECKERBOARD_DIST:
+  elif FLAGS.target == dists.CHECKERBOARD_DIST:
     bounds = (0,1)
 
   x = tf.range(bounds[0], bounds[1], delta=(bounds[1]-bounds[0])/float(num_points))
@@ -296,20 +193,20 @@ def density_image_summary(log_density, num_points, title):
   tf.summary.image(title, plot, max_outputs=1, collections=["infrequent_summaries"])
 
 def sample_image_summary(model, title, num_samples=100000, num_bins=50):
-  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
+  if FLAGS.target == dists.NINE_GAUSSIANS_DIST or FLAGS.target == dists.TWO_RINGS_DIST:
     bounds = (-2,2)
-  elif FLAGS.target == CHECKERBOARD_DIST:
+  elif FLAGS.target == dists.CHECKERBOARD_DIST:
     bounds = (0,1)
   data = model.sample([num_samples])
 
   #def log_gaussian_kde(data, eval_data):
   #  kernel = gaussian_kde(data.T)
-  #  eval_data = np.reshape(eval_data, [FLAGS.density_num_points * FLAGS.density_num_points, -1]).T
-  #  return np.reshape(kernel.logpdf(eval_data), [FLAGS.density_num_points, -1])
+  #  eval_data = np.reshape(eval_data, [FLAGS.density_num_bins * FLAGS.density_num_bins, -1]).T
+  #  return np.reshape(kernel.logpdf(eval_data), [FLAGS.density_num_bins, -1])
   #tf_log_gaussian_kde = lambda x: tf.to_float(tf.py_func(
   #    log_gaussian_kde, [data, x], [tf.float64]))
 
-  #density_image_summary(tf_log_gaussian_kde, FLAGS.density_num_points, title)
+  #density_image_summary(tf_log_gaussian_kde, FLAGS.density_num_bins, title)
 
   def _hist2d(x, y):
     return np.histogram2d(x, y, bins=num_bins, range=[bounds,bounds])[0]
@@ -345,11 +242,11 @@ def make_his_graph(target_dist,
   tf.summary.scalar("elbo", elbo)
   tf.summary.scalar("eval_elbo", eval_elbo, collections=["infrequent_summaries"])
   density_image_summary(lambda x: -model.hamiltonian_potential(x),
-                        FLAGS.density_num_points,
+                        FLAGS.density_num_bins,
                         'energy/hamiltonian_potential')
   sample_image_summary(model, 'density', num_samples=FLAGS.density_num_samples,
-          num_bins=FLAGS.density_num_points)
-  #his_density_image_summary(model, num_points=FLAGS.density_num_points)
+          num_bins=FLAGS.density_num_bins)
+  #his_density_image_summary(model, num_points=FLAGS.density_num_bins)
   global_step = tf.train.get_or_create_global_step()
   opt = tf.train.AdamOptimizer(learning_rate=lr)
   grads = opt.compute_gradients(-elbo)
@@ -377,7 +274,8 @@ def make_log_hooks(global_step, loss):
 def main(unused_argv):
   g = tf.Graph()
   with g.as_default():
-    target = get_target_distribution(FLAGS.target)
+    target = dists.get_target_distribution(FLAGS.target,
+            nine_gaussians_variance=FLAGS.nine_gaussians_variance)
     energy_fn_layers = [int(x.strip()) for x in FLAGS.energy_fn_sizes.split(",")]
     if FLAGS.algo == "lars":
       print("Running LARS")

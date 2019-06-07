@@ -14,15 +14,12 @@ from models import his
 from models import nis
 from models import lars
 
-NINE_GAUSSIANS_DIST = "nine_gaussians"
-TWO_RINGS_DIST = "two_rings"
-CHECKERBOARD_DIST = "checkerboard"
-TARGET_DISTS = [NINE_GAUSSIANS_DIST, TWO_RINGS_DIST, CHECKERBOARD_DIST]
+import small_problems_dists as dists
 
 tf.logging.set_verbosity(tf.logging.INFO)
-tf.app.flags.DEFINE_enum("algo", "lars", ["lars","nis", "his"],
-                         "The algorithm to run.")
-tf.app.flags.DEFINE_enum("target", NINE_GAUSSIANS_DIST,  TARGET_DISTS,
+tf.app.flags.DEFINE_enum("algo", "lars", ["lars","nis", "his", "density"],
+                         "The algorithm to run. Density draws the targeted density")
+tf.app.flags.DEFINE_enum("target", dists.NINE_GAUSSIANS_DIST,  dists.TARGET_DISTS,
                                  "Distribution to draw data from.")
 tf.app.flags.DEFINE_string("energy_fn_sizes", "20,20",
                            "List of hidden layer sizes for energy function as as comma "
@@ -55,9 +52,9 @@ def make_sample_density_summary(
         max_samples_per_batch=100000, 
         num_samples=1000000, 
         num_bins=100):
-  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
+  if FLAGS.target == dists.NINE_GAUSSIANS_DIST or FLAGS.target == dists.TWO_RINGS_DIST:
     bounds = (-2,2)
-  elif FLAGS.target == CHECKERBOARD_DIST:
+  elif FLAGS.target == dists.CHECKERBOARD_DIST:
     bounds = (0,1)
   num_batches = math.ceil(num_samples / float(max_samples_per_batch))
   hist = None
@@ -81,19 +78,20 @@ def reduce_logavgexp(input_tensor, axis=None, keepdims=None, name=None):
                               keepdims=keepdims,
                               name=name) - tf.log(tf.to_float(denominator)))
 
-def make_lars_density_summary(
-        model,
+def make_density_summary(
+        log_density_fn,
         num_bins=100):
-  if FLAGS.target == NINE_GAUSSIANS_DIST or FLAGS.target == TWO_RINGS_DIST:
+  if FLAGS.target == dists.NINE_GAUSSIANS_DIST or FLAGS.target == dists.TWO_RINGS_DIST:
     bounds = (-2,2)
-  elif FLAGS.target == CHECKERBOARD_DIST:
+  elif FLAGS.target == dists.CHECKERBOARD_DIST:
     bounds = (0,1)
 
   x = tf.range(bounds[0], bounds[1], delta=(bounds[1]-bounds[0])/float(num_bins))
   X, Y = tf.meshgrid(x, x)
   XY = tf.stack([X,Y], axis=-1)
 
-  log_z = tf.squeeze(model.accept_fn(XY)) + model.proposal.log_prob(XY)
+  #log_z = tf.squeeze(model.accept_fn(XY)) + model.proposal.log_prob(XY)
+  log_z = log_density_fn(XY)
   log_Z = reduce_logavgexp(log_z)
   z = tf.exp(log_z - log_Z)
 
@@ -104,13 +102,24 @@ def main(unused_argv):
   g = tf.Graph()
   with g.as_default():
     energy_fn_layers = [int(x.strip()) for x in FLAGS.energy_fn_sizes.split(",")]
-    if FLAGS.algo == "lars":
+    if FLAGS.algo == "density":
+      target = dists.get_target_distribution(FLAGS.target)
+      plot = make_density_summary(
+              target.log_prob,
+              num_bins=FLAGS.num_bins)
+      with tf.train.SingularMonitoredSession(
+        checkpoint_dir=FLAGS.logdir) as sess:
+        plot = sess.run(plot)
+        np.save(os.path.join(FLAGS.logdir, "density"), plot)
+    elif FLAGS.algo == "lars":
       tf.logging.info("Running LARS")
       model = lars.SimpleLARS(
           K=FLAGS.K,
           data_dim=2,
           accept_fn_layers=energy_fn_layers)
-      plot = make_lars_density_summary(model, num_bins=FLAGS.num_bins)
+      plot = make_density_summary(
+                 lambda x: tf.squeeze(model.accept_fn(x)) + model.proposal.log_prob(x),
+                  num_bins=FLAGS.num_bins)
       with tf.train.SingularMonitoredSession(
         checkpoint_dir=FLAGS.logdir) as sess:
         plot = sess.run(plot)
