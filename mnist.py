@@ -334,7 +334,7 @@ def run_train():
     else:
       lr = FLAGS.learning_rate
     tf.summary.scalar("learning_rate", lr)
-    opt = tf.train.AdamOptimizer(learning_rate=lr)
+    opt = tf.train.AdamOptimizer(learning_rate=lr, beta2=0.9999)
     grads = opt.compute_gradients(-elbo_avg)
     train_op = opt.apply_gradients(grads, global_step=global_step)
 

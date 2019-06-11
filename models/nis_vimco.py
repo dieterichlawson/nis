@@ -51,80 +51,65 @@ class NISVIMCO(object):
 
   def _log_prob(self, data, num_samples=1):
     batch_size = tf.shape(data)[0]
-    # Sample from the proposal and compute the weights of the "unseen" samples.
-    # We share these across the batch dimension.
-    # [num_samples, K, latent_size]
-    vae_z = tf.stop_gradient(self.proposal.prior.sample([num_samples, self.K]))
+    # Prior has no params, so stop_grad should be a noop.
+    # [K, latent_size]
+    vae_z = tf.stop_gradient(self.proposal.prior.sample([self.K]))
     vae_p_x_given_z = self.proposal.decoder(vae_z)
-    vae_samples = vae_p_x_given_z.sample()
-    # [num_samples, K]
+    vae_samples = vae_p_x_given_z.sample([batch_size])  # [B, K, data_dim]
+
+    # [B, K]
     vae_log_p_x_given_z = vae_p_x_given_z.log_prob(vae_samples)
+    # stop_grad is probably a noop, as vae_samples is discrete.
     vae_samples = tf.stop_gradient(tf.cast(vae_samples, self.dtype))
 
-    # Compute the log energy of the samples from the proposal.
-    # [num_samples, K]
-    log_energy_proposal = tf.reshape(self.energy_fn(vae_samples - self.data_mean),
-            [num_samples, self.K])
-    tf.summary.histogram("log_energy_proposal", log_energy_proposal)
-    # [num_samples]
-    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=1)
-    # [batch_size, num_samples]
-    tiled_proposal_lse = tf.tile(proposal_lse[tf.newaxis,:], [batch_size, 1])
+    # [B, K]
+    log_energy_proposal = tf.reshape(
+        tf.squeeze(self.energy_fn(tf.reshape(vae_samples, [-1, self.data_dim]) - self.data_mean), axis=-1),
+                   [-1, self.K])
+    # [B]
+    proposal_lse = tf.reduce_logsumexp(log_energy_proposal, axis=-1)
+    #tiled_proposal_lse = tf.tile(proposal_lse[None], [batch_size])
 
-    # Compute the log energy of the observed data.
     # [batch_size]
-    log_energy_data = tf.reshape(self.energy_fn(data - self.data_mean), [batch_size])
-    tf.summary.histogram("log_energy_data", log_energy_data)
-    # [batch_size, num_samples]
-    tiled_log_energy_data = tf.tile(log_energy_data[:, tf.newaxis], [1, num_samples])
-
-    # Add the weights of the proposal samples with the true data weights.
-    # [batch_size, num_samples]
+    log_energy_data = tf.squeeze(self.energy_fn(data - self.data_mean), axis=-1)
     Z_hat = tf.reduce_logsumexp(
-            tf.stack([tiled_log_energy_data, tiled_proposal_lse], axis=-1), axis=-1)
-    Z_hat -= tf.log(tf.to_float(self.K+1))
-    # Perform the log-sum-exp reduction for IWAE
-    # [batch_size]
-    Z_hat = tf.reduce_logsumexp(Z_hat, axis=1) - tf.log(tf.to_float(num_samples))
-    tf.summary.histogram("Z_hat", Z_hat)
+        tf.stack([log_energy_data, proposal_lse], axis=-1), axis=-1)
+    Z_hat -= tf.log(tf.to_float(self.K + 1))
 
-    # Compute part of the learning signal baseline for the gradient estimator.
-    # [num_samples, K, K]
-    tiled_log_energy_proposal = tf.tile(log_energy_proposal[:,:,tf.newaxis], [1,1, self.K])
-    tiled_log_energy_proposal_loo = tf.linalg.set_diag(
-            tiled_log_energy_proposal, 
-            tf.constant(-np.inf, shape=[num_samples, self.K], dtype=self.dtype))
-    # [num_samples, K]
-    ls_baseline_loo = tf.reduce_logsumexp(tiled_log_energy_proposal_loo, axis=1)
-    # [batch_size, num_samples, K]
-    tiled_ls_baseline_loo = tf.tile(ls_baseline_loo[tf.newaxis,:,:], [batch_size, 1, 1])
+    # Compute LOO baseline
+    # [B, K, K]
+    loo_baseline = tf.tile(log_energy_proposal[:, None, :], [1, self.K, 1])
+    loo_baseline = tf.linalg.set_diag(loo_baseline,
+                                      tf.tile(tf.constant(-np.inf, shape=[self.K], dtype=self.dtype)[None, :], [batch_size, 1]))
+    # [B, K]
+    loo_baseline = (tf.reduce_logsumexp(loo_baseline, axis=-1)
+                    + tf.log(tf.cast(self.K, self.dtype))
+                    - tf.log(tf.cast(self.K-1, self.dtype)))
+    loo_baseline = tf.stack([
+        loo_baseline,
+        tf.tile(log_energy_data[:, None], [1, self.K])], axis=-1)
+    # [B, K]
+    loo_baseline = tf.reduce_logsumexp(loo_baseline, axis=-1)
+    loo_baseline -= tf.log(tf.to_float(self.K + 1))
 
-    # [batch_size, num_samples, K]
-    loo_baseline = tf.reduce_logsumexp(
-            tf.stack([tiled_ls_baseline_loo, 
-                     tf.tile(tiled_log_energy_data[:,:,tf.newaxis], [1, 1, self.K])],
-                     axis=-1),
-            axis=-1)
-    # Remove the num_samples dimension and divide by K-1
-    # [batch_size, K]
-    loo_baseline = tf.reduce_logsumexp(loo_baseline, axis=1) 
-    loo_baseline -= tf.log(tf.to_float(self.K))
-    # [batch_size, K]
-    learning_signal = tf.stop_gradient(Z_hat[:,tf.newaxis] - loo_baseline)
+    # [B, K]
+    learning_signal = tf.stop_gradient(Z_hat[:, None] - loo_baseline)
     tf.summary.histogram("learning_signal", learning_signal)
-    tf.summary.histogram("learning_signal_abs", tf.math.abs(learning_signal))
-    tf.summary.scalar("avg_learning_signal_abs", tf.reduce_mean(tf.math.abs(learning_signal)))
-    
-    score_fn = learning_signal*tf.tile(
-            tf.reduce_sum(vae_log_p_x_given_z, axis=0)[tf.newaxis,:], [batch_size, 1])
-    Z_hat_vimco = Z_hat + tf.reduce_sum(score_fn - tf.stop_gradient(score_fn), axis=-1)
- 
+    tf.summary.scalar("learning_signal_MSE", tf.reduce_mean(tf.square(learning_signal)))
+
+    # [B]
+    reinf_grad = tf.reduce_sum(
+        learning_signal * vae_log_p_x_given_z,
+        axis=-1)
+    Z_hat += reinf_grad - tf.stop_gradient(reinf_grad)
+
     try:
       # Try giving the proposal vae lower bound num_samples if it can use it.
       proposal_lp = self.proposal.log_prob(data, num_samples=num_samples)
     except TypeError:
       proposal_lp = self.proposal.log_prob(data)
-    lower_bound = proposal_lp + log_energy_data - Z_hat_vimco
+    # [B]
+    lower_bound = proposal_lp + log_energy_data - Z_hat  # Z_hat_vimco
     return lower_bound
 
   def sample(self, sample_shape=[1]):
